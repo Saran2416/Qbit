@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "petd"
 version = "0.1.0"
 description = "Cross-platform background monitor daemon for desktop-pet robot app"
-readme = "README.md"
+readme = { text = "petd is the local monitoring daemon of Qbit Pet. Setup, usage and the WebSocket protocol are documented in README.md at the repository root.", content-type = "text/markdown" }
 requires-python = ">=3.11"
 authors = [
     { name = "Pet Robot Engineering Team" }
