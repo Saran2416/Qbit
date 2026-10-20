@@ -8,7 +8,8 @@ Qbit Pet (Electron)  <--ws://127.0.0.1:8765-->  petd (Python daemon)
 ```
 
 * **frontend/** — transparent, mostly click-through Electron overlay (TypeScript + Canvas +
-  Vite, no UI framework). The robot walks the desktop, reacts with bubbles and a token chip,
+  Vite, no UI framework). The robot roams the **perimeter of your display** — bottom, right,
+  top and left edges in sequence — reacting with bubbles and a token chip,
   offers mini-games when you are idle, and shows today's screen time. It works offline:
   without the backend the pet simply keeps roaming.
 * **backend/** — `petd`, a Python daemon that tracks the active window, screen time, idle
@@ -94,8 +95,20 @@ screen-time limit; the tray icon has Quit, Mute and Pause roaming.
 | Robot art (sprites) | see [`frontend/sprites/README.md`](frontend/sprites/README.md) |
 
 Useful env vars for the app: `QBIT_DEBUG=1` (verbose logging), `QBIT_DISABLE_GPU=1`
-(software rendering on broken GPU drivers), `QBIT_CAPTURE=/tmp/pet.png` +
-`QBIT_CAPTURE_EXIT=1` (dump an overlay screenshot and quit).
+(force software rendering), `QBIT_ENABLE_GPU=1` (retry hardware acceleration after
+a fallback), `QBIT_CAPTURE=/tmp/pet.png` + `QBIT_CAPTURE_EXIT=1` (dump an overlay
+screenshot and quit).
+
+If Chromium's GPU process crashes twice (broken VA-API/driver stacks segfault it
+in a loop), the app switches to SwiftShader software rendering and remembers the
+choice in `~/.config/qbit-pet/gpu-software-rendering` (delete that file to undo).
+SwiftShader must be selected via real command-line flags (`--use-gl=angle
+--use-angle=swiftshader`, plus `--ozone-platform=x11` on Linux) because
+`appendSwitch()` and env vars do not reach the GPU process, and an in-process
+switch would leave the window unmapped on XWayland. `npm run dev` therefore goes
+through `tools/dev.mjs`, which reads the marker and passes the flags to
+electron-vite before Electron starts; packaged builds relaunch themselves once
+with the flags instead.
 
 ## Known limitations
 

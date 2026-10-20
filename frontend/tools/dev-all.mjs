@@ -36,4 +36,4 @@ process.on('SIGINT', shutdown)
 process.on('SIGTERM', shutdown)
 
 start('mock backend', process.execPath, [join(ROOT, 'tools', 'mock-backend.mjs'), '--fast'])
-start('electron-vite', process.platform === 'win32' ? 'npx.cmd' : 'npx', ['electron-vite', 'dev'])
+start('electron-vite', process.execPath, [join(ROOT, 'tools', 'dev.mjs')])

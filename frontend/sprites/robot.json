@@ -1,0 +1,42 @@
+{
+  "frameWidth": 128,
+  "frameHeight": 128,
+  "image": "robot.png",
+  "renderScale": 1.0,
+  "anchor": {
+    "x": 0.5,
+    "y": 0.9766
+  },
+  "clips": {
+    "idle": {
+      "row": 0,
+      "frames": 6,
+      "fps": 6,
+      "loop": true
+    },
+    "walk": {
+      "row": 1,
+      "frames": 8,
+      "fps": 10,
+      "loop": true
+    },
+    "sleep": {
+      "row": 2,
+      "frames": 4,
+      "fps": 3,
+      "loop": true
+    },
+    "alert": {
+      "row": 3,
+      "frames": 6,
+      "fps": 12,
+      "loop": true
+    },
+    "happy": {
+      "row": 4,
+      "frames": 8,
+      "fps": 12,
+      "loop": false
+    }
+  }
+}

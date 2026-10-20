@@ -69,6 +69,8 @@ export class OverlayWindow {
   private regions: Rect[] = []
   private ignoring = true
   private interactive = false
+  /** bumped whenever the ignore state changes, to void pending re-asserts */
+  private hitEpoch = 0
 
   constructor(private readonly getLayout: () => VirtualLayout) {
     this.layout = getLayout()
@@ -160,6 +162,12 @@ export class OverlayWindow {
         current.height !== bounds.height
       ) {
         win.setBounds(bounds)
+        // Resize can race the X11 input shape (electron#54423): re-assert.
+        try {
+          win.setIgnoreMouseEvents(this.ignoring, { forward: true })
+        } catch (err) {
+          log.debug('overlay: setIgnoreMouseEvents after resize failed', err)
+        }
       }
     }
     this.send(IPC.evLayout, layout)
@@ -178,11 +186,38 @@ export class OverlayWindow {
     if (inside === this.interactive) return
     this.interactive = inside
     this.ignoring = !inside
+    log.info(`overlay: mouse input ${inside ? 'accepted (cursor over interactive region)' : 'passed through'}`)
+    this.applyIgnoreState()
+  }
+
+  /**
+   * Push the ignore state to the window, and - when becoming interactive -
+   * assert it once more after the event loop has gone idle: X11 input-shape
+   * changes have historically raced the next click (electron#54487), so a
+   * double-assert makes sure the button under the cursor is really clickable.
+   */
+  private applyIgnoreState(): void {
+    const win = this.win
+    if (!win || win.isDestroyed()) return
+    const ignore = this.ignoring
     try {
-      win.setIgnoreMouseEvents(this.ignoring, { forward: true })
+      win.setIgnoreMouseEvents(ignore, { forward: true })
     } catch (err) {
       log.debug('overlay: setIgnoreMouseEvents failed', err)
+      return
     }
+    if (ignore) return
+    const stamp = ++this.hitEpoch
+    setTimeout(() => {
+      if (stamp !== this.hitEpoch || this.ignoring) return
+      const w = this.win
+      if (!w || w.isDestroyed()) return
+      try {
+        w.setIgnoreMouseEvents(false, { forward: true })
+      } catch (err) {
+        log.debug('overlay: setIgnoreMouseEvents re-assert failed', err)
+      }
+    }, 150)
   }
 
   /** Used when the pet must not react to the mouse at all (e.g. roaming paused). */
@@ -190,6 +225,7 @@ export class OverlayWindow {
     this.regions = []
     this.interactive = false
     this.ignoring = true
+    this.hitEpoch++ // void any pending interactive re-assert
     if (this.win && !this.win.isDestroyed()) {
       try {
         this.win.setIgnoreMouseEvents(true, { forward: true })

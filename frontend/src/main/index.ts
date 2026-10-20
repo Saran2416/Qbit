@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process'
-import { writeFileSync } from 'node:fs'
+import { existsSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { BrowserWindow, app, screen, shell } from 'electron'
 import { IPC, type PetCommand } from '../shared/ipc'
@@ -43,17 +43,121 @@ app.commandLine.appendSwitch('disable-background-timer-throttling')
 app.commandLine.appendSwitch('disable-renderer-backgrounding')
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows')
 
-if (process.env.QBIT_DISABLE_GPU === '1') {
-  // Escape hatch for broken GPU stacks: keep transparency, lose smoothness.
-  app.disableHardwareAcceleration()
+// Set the app name explicitly: Electron defaults to "Qbit Pet" from the
+// productName in package.json, which makes the settings path
+// ~/.config/Qbit Pet on Linux (spaces).
+app.setName('qbit-pet')
+
+/* --------------------------------------------------------------------------
+ * GPU fallback.
+ *
+ * Some driver stacks (VA-API on hybrid GPUs, VMs, broken Intel/NVIDIA combos)
+ * segfault Chromium's GPU process: it dies and respawns once a second, forever,
+ * flooding the log with vaInitialize / GpuControl noise. Worse, every
+ * in-process workaround on an XWayland setup either keeps the crash loop or
+ * hides the pet entirely:
+ *
+ *   app.disableHardwareAcceleration()  -> X11 software bitmap presenter, window
+ *                                         never maps (pet invisible)
+ *   LIBGL_ALWAYS_SOFTWARE=1 env vars   -> no crash, but the window still never maps
+ *   app.commandLine.appendSwitch(...)  -> GPU switches are read before JS runs
+ *
+ * The only thing that both silences the crashes and maps the window is
+ * Chromium's SwiftShader backend selected via REAL argv flags, before Electron
+ * starts:
+ *
+ *   --use-gl=angle --use-angle=swiftshader
+ *
+ * After two GPU crashes we remember the choice in the data directory and
+ * relaunch with those flags (packaged / `electron .` runs). A relaunch in dev
+ * mode would kill the vite dev server (electron-vite exits when this process
+ * closes), so `npm run dev` goes through tools/dev.mjs, which reads the same
+ * marker and hands the flags to electron-vite via ELECTRON_CLI_ARGS.
+ *
+ *   QBIT_DISABLE_GPU=1   force software rendering
+ *   QBIT_ENABLE_GPU=1    ignore the marker, try hardware acceleration again
+ * ------------------------------------------------------------------------ */
+
+const GPU_FALLBACK_MARKER = 'gpu-software-rendering'
+/**
+ * SwiftShader flags. On Linux they only take effect together with
+ * --ozone-platform=x11 on the REAL argv: with the GPU process in software
+ * mode the window fails to map when the browser process started as native
+ * Wayland (appendSwitch is too late for both switches).
+ */
+const GPU_SOFTWARE_ARGS = [
+  '--use-gl=angle',
+  '--use-angle=swiftshader',
+  ...(process.platform === 'linux' && !process.argv.some((a) => a.startsWith('--ozone-platform'))
+    ? ['--ozone-platform=x11']
+    : [])
+]
+
+function gpuFallbackMarkerPath(): string {
+  return join(app.getPath('userData'), GPU_FALLBACK_MARKER)
 }
+
+/** True when this process already carries the SwiftShader flags. */
+function gpuHasSoftwareArgs(): boolean {
+  return process.argv.includes('--use-gl=angle') && process.argv.includes('--use-angle=swiftshader')
+}
+
+/**
+ * Remember the choice and move to SwiftShader. Packaged builds can relaunch
+ * with the flags; in dev mode the vite dev server lives in electron-vite,
+ * which exits when this process exits, so we only write the marker and tell
+ * the user to restart `npm run dev` (the launcher passes the flags then).
+ */
+function switchToSoftwareGpu(reason: string): void {
+  const devMode = !!process.env.ELECTRON_RENDERER_URL
+  try {
+    writeFileSync(gpuFallbackMarkerPath(), `${new Date().toISOString()} reason=${reason}\n`)
+  } catch {
+    /* best effort */
+  }
+  log.info(
+    `gpu: remembered in ${gpuFallbackMarkerPath()} - delete it or set QBIT_ENABLE_GPU=1 to retry hardware acceleration`
+  )
+  if (devMode) {
+    log.warn(`gpu: cannot relaunch with software rendering in dev mode (${reason}) - restart via "npm run dev" to apply`)
+    return
+  }
+  if (gpuHasSoftwareArgs()) return // already running on SwiftShader
+  log.info(`gpu: relaunching with SwiftShader software rendering (${reason})`)
+  app.relaunch({ args: [...process.argv.slice(1), ...GPU_SOFTWARE_ARGS] })
+  app.exit(0)
+}
+
+const gpuForcedOff = process.env.QBIT_DISABLE_GPU === '1'
+const gpuWantedOn = process.env.QBIT_ENABLE_GPU === '1'
+const gpuArgsPresent = gpuHasSoftwareArgs()
+
+let gpuRemembered = false
+if (!gpuWantedOn && !gpuArgsPresent) {
+  try {
+    gpuRemembered = gpuForcedOff || existsSync(gpuFallbackMarkerPath())
+  } catch {
+    gpuRemembered = gpuForcedOff // the marker is a hint, never a hard failure
+  }
+}
+if (gpuRemembered) switchToSoftwareGpu(gpuForcedOff ? 'QBIT_DISABLE_GPU=1' : 'remembered marker')
+else if (gpuArgsPresent) log.info('gpu: hardware acceleration off - software rendering (SwiftShader argv)')
+
+let gpuGoneCount = 0
+app.on('child-process-gone', (_event, details) => {
+  if (String(details.type).toLowerCase() !== 'gpu' || details.reason === 'clean-exit') return
+  gpuGoneCount += 1
+  if (gpuWantedOn || gpuArgsPresent) {
+    log.warn(`gpu: process gone again (${details.reason})`)
+    return
+  }
+  log.warn(`gpu: process gone (${details.reason}), ${gpuGoneCount}/2 before falling back`)
+  if (gpuGoneCount < 2) return
+  switchToSoftwareGpu(`crashed ${gpuGoneCount} times (${details.reason})`)
+})
 
 const TICK_MS = 5_000
 const PERSIST_MS = 30_000
-
-// Keep the data directory tidy and predictable: ~/.config/qbit-pet (Linux) or
-// %APPDATA%\qbit-pet (Windows), instead of the spaced product name.
-app.setName('qbit-pet')
 
 let ctx: AppContext | null = null
 let mockProcess: ChildProcess | null = null

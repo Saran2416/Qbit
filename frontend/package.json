@@ -11,7 +11,7 @@
   "scripts": {
     "postinstall": "node tools/make-icons.mjs",
     "icons": "node tools/make-icons.mjs",
-    "dev": "electron-vite dev",
+    "dev": "node tools/dev.mjs",
     "dev:mock": "node tools/dev-all.mjs",
     "mock": "node tools/mock-backend.mjs",
     "start": "electron-vite preview",
