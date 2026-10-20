@@ -1,0 +1,238 @@
+/* Overlay window: a transparent canvas + a DOM layer for anchored UI. */
+
+canvas#stage {
+  position: fixed;
+  inset: 0;
+  display: block;
+  pointer-events: none;
+  image-rendering: pixelated;
+}
+
+/*
+ * Nothing in the DOM may steal clicks unless it is explicitly interactive.
+ * (Main additionally keeps the whole window click-through and only enables
+ * mouse input while the cursor is inside a reported region - so this is the
+ * second line of defence, not the first.)
+ */
+.ui-layer {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* ----------------------------------------------------------------- bubbles */
+
+.bubble {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: max-content;
+  max-width: 260px;
+  min-width: 140px;
+  padding: 9px 12px 10px;
+  background: linear-gradient(180deg, rgba(27, 37, 54, 0.97), rgba(18, 25, 38, 0.97));
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  pointer-events: auto;
+  will-change: transform;
+  font-size: 12.5px;
+  line-height: 1.35;
+  backdrop-filter: blur(2px);
+  animation: bubble-in 180ms cubic-bezier(0.2, 1.2, 0.4, 1);
+}
+
+.bubble::after {
+  /* little tail pointing at the robot */
+  content: '';
+  position: absolute;
+  left: 18px;
+  bottom: -7px;
+  width: 12px;
+  height: 12px;
+  background: rgba(18, 25, 38, 0.97);
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  transform: rotate(45deg);
+  border-bottom-right-radius: 3px;
+}
+
+.bubble.tone-browser {
+  border-left-color: #4f9dff;
+}
+.bubble.tone-editor {
+  border-left-color: var(--cyan);
+}
+.bubble.tone-warning {
+  border-left-color: var(--warn);
+}
+.bubble.tone-reminder {
+  border-left-color: var(--good);
+}
+.bubble.tone-offer {
+  border-left-color: #c084fc;
+}
+
+.bubble-title {
+  font-weight: 650;
+  font-size: 12px;
+  letter-spacing: 0.2px;
+  color: var(--text);
+  margin-bottom: 3px;
+  padding-right: 14px;
+}
+
+.bubble-text {
+  color: var(--text-dim);
+  word-break: break-word;
+}
+
+.bubble-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.bubble-btn {
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(79, 157, 255, 0.12);
+  font-size: 11.5px;
+  transition: background 120ms ease, transform 120ms ease;
+}
+
+.bubble-btn:hover {
+  background: rgba(79, 157, 255, 0.24);
+}
+
+.bubble-btn:active {
+  transform: translateY(1px);
+}
+
+.bubble-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #071120;
+  font-weight: 650;
+}
+
+.bubble-close {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.bubble-close:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.bubble.pulse {
+  animation: bubble-pulse 420ms ease;
+}
+
+@keyframes bubble-in {
+  from {
+    opacity: 0;
+    transform-origin: 0 100%;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes bubble-pulse {
+  0% {
+    border-left-color: var(--accent);
+  }
+  40% {
+    border-left-color: #ffffff;
+  }
+  100% {
+    border-left-color: var(--accent);
+  }
+}
+
+/* -------------------------------------------------------------- token chip */
+
+.token-chip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: grid;
+  grid-template-columns: auto auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  gap: 2px 7px;
+  padding: 5px 9px;
+  background: rgba(14, 20, 32, 0.94);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+  pointer-events: auto;
+  will-change: transform;
+  opacity: 0;
+  transition: opacity 160ms ease;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.token-chip.visible {
+  opacity: 1;
+}
+
+.token-chip-dot {
+  grid-row: span 2;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 8px rgba(126, 240, 255, 0.8);
+}
+
+.token-chip-label {
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.token-chip-track {
+  width: 96px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.token-chip-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--cyan), var(--accent));
+  transition: width 220ms ease;
+}
+
+.token-chip-fill.warn {
+  background: linear-gradient(90deg, var(--warn), #ff8a3d);
+}
+
+.token-chip-fill.over {
+  background: linear-gradient(90deg, var(--danger), #ff3d6e);
+}
+
+.token-chip.compact .token-chip-track {
+  display: none;
+}

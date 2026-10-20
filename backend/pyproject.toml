@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "petd"
+version = "0.1.0"
+description = "Cross-platform background monitor daemon for desktop-pet robot app"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    { name = "Pet Robot Engineering Team" }
+]
+dependencies = [
+    "websockets>=12.0",
+    "psutil>=5.9.0",
+    "pynput>=1.7.6",
+]
+
+[project.optional-dependencies]
+linux = [
+    "dbus-next>=0.2.3",
+    "python-xlib>=0.33",
+]
+windows = [
+    "pywin32>=306",
+]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+]
+
+[project.scripts]
+petd = "petd.__main__:main"

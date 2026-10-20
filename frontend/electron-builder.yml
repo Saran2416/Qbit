@@ -1,0 +1,50 @@
+appId: com.qbit.desktoppet
+productName: Qbit Pet
+copyright: Copyright (c) 2026 Qbit
+directories:
+  buildResources: build
+  output: release
+files:
+  - out/**/*
+  - package.json
+  - '!**/*.map'
+extraResources:
+  - from: sprites
+    to: sprites
+    filter:
+      - '**/*'
+asar: true
+compression: normal
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+  icon: build/icon.ico
+  artifactName: ${productName}-${version}-${arch}-setup.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Qbit Pet
+  deleteAppDataOnUninstall: false
+portable:
+  artifactName: ${productName}-${version}-portable.${ext}
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+  icon: build/icons
+  category: Utility
+  synopsis: Desktop-pet robot that reacts to your screen-time backend
+  description: A small animated robot that roams the desktop, shows screen-time notifications and mini-games.
+  syncDesktopName: true
+  desktop:
+    entry:
+      Terminal: 'false'
+  artifactName: ${productName}-${version}-${arch}.${ext}
+appImage:
+  license: build/LICENSE.txt

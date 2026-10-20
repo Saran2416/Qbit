@@ -1,0 +1,142 @@
+/* Game window: small, always-on-top, one canvas per game. */
+
+body.game {
+  background: transparent;
+  padding: 8px;
+  overflow: hidden;
+}
+
+.game-card {
+  display: flex;
+  flex-direction: column;
+  height: 584px;
+  padding: 12px;
+  background: linear-gradient(180deg, rgba(27, 37, 54, 0.98), rgba(12, 17, 27, 0.99));
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+}
+
+.game-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  -webkit-app-region: drag;
+}
+
+.game-head * {
+  -webkit-app-region: no-drag;
+}
+
+.game-title {
+  font-size: 13.5px;
+  font-weight: 650;
+  letter-spacing: 0.2px;
+}
+
+.game-view {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 0;
+  overflow: hidden;
+}
+
+.game-view canvas {
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius);
+  background: rgba(9, 13, 22, 0.72);
+  border: 1px solid var(--line);
+  touch-action: none;
+}
+
+.game-foot {
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 11.5px;
+  color: var(--text-faint);
+  text-align: center;
+}
+
+/* ------------------------------------------------------------------- menu */
+
+.menu {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  padding: 0 6px;
+}
+
+.menu button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: rgba(79, 157, 255, 0.08);
+  text-align: left;
+}
+
+.menu button:hover {
+  background: rgba(79, 157, 255, 0.18);
+  border-color: var(--accent-soft);
+}
+
+.menu .menu-name {
+  font-size: 13.5px;
+  font-weight: 650;
+}
+
+.menu .menu-desc {
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+/* ------------------------------------------------------------ rps buttons */
+
+.rps-controls {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  width: 100%;
+  justify-content: center;
+}
+
+.rps-controls button {
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 12.5px;
+}
+
+.rps-controls button:hover:not(:disabled) {
+  background: rgba(79, 157, 255, 0.18);
+}
+
+.rps-controls button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.game-column {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+
+.round-label {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-faint);
+  margin-top: 8px;
+}

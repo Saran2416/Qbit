@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ws://127.0.0.1:8765 ws://localhost:8765"
+    />
+    <title>Qbit overlay</title>
+    <link rel="stylesheet" href="./css/base.css" />
+    <link rel="stylesheet" href="./css/overlay.css" />
+  </head>
+  <body class="overlay">
+    <!-- The robot is drawn here (dirty rectangles only). -->
+    <canvas id="stage" aria-hidden="true"></canvas>
+    <!-- Speech bubbles / token chip live in the DOM, anchored to the robot. -->
+    <div id="layer" class="ui-layer"></div>
+    <script type="module" src="./overlay/main.ts"></script>
+  </body>
+</html>

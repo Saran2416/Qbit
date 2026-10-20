@@ -1,0 +1,94 @@
+[server]
+host = "127.0.0.1"
+port = 8765
+
+[storage]
+database_path = "petd.sqlite3"
+
+[screen_time]
+# Daily total screen-time limit in seconds (e.g. 28800 = 8 hours)
+daily_limit_seconds = 28800
+# User inactivity in seconds before screen-time accumulation pauses
+idle_threshold_seconds = 120
+# Frequency in seconds to re-emit warning after limit exceeded (1800s = 30m)
+warning_repeat_seconds = 1800
+
+[window_tracker]
+# Polling interval for active window query
+poll_interval_seconds = 1.0
+
+[token_usage]
+# Path to Claude Code logs/projects directory (~ will be expanded)
+claude_code_logs_path = "~/.claude"
+# Daily token budget (optional limit)
+daily_token_limit = 250000
+# Interval between checking token usage while in an editor
+check_interval_seconds = 10.0
+
+[logging]
+level = "INFO"
+format = "%(asctime)s [%(levelname)s] [%(name)s] %(message)s"
+
+# Process/application name mappings to pet activity categories.
+# Matching is case-insensitive and checks exact match, basename, and substring.
+[categories.browser]
+apps = [
+    "chrome",
+    "google-chrome",
+    "google-chrome-stable",
+    "chromium",
+    "firefox",
+    "firefox-bin",
+    "brave",
+    "brave-browser",
+    "msedge",
+    "opera",
+    "vivaldi",
+    "vivaldi-bin",
+    "zen",
+    "arc",
+    "safari"
+]
+
+[categories.editor]
+apps = [
+    "code",
+    "code-oss",
+    "codium",
+    "vscodium",
+    "cursor",
+    "zed",
+    "sublime_text",
+    "pycharm",
+    "pycharm64",
+    "idea",
+    "idea64",
+    "clion",
+    "webstorm",
+    "goland",
+    "rider",
+    "rustrover",
+    "nvim",
+    "vim",
+    "neovim",
+    "emacs",
+    "atom",
+    "nano",
+    "gedit",
+    "kate"
+]
+
+[categories.game]
+apps = [
+    "steam",
+    "steamwebhelper",
+    "lutris",
+    "heroic",
+    "epicgameslauncher",
+    "minecraft",
+    "dota2",
+    "cs2",
+    "hl2",
+    "retroarch",
+    "wine64-preloader"
+]

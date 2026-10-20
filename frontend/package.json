@@ -1,0 +1,38 @@
+{
+  "name": "qbit-pet",
+  "productName": "Qbit Pet",
+  "version": "0.1.0",
+  "description": "Qbit - a desktop-pet robot overlay that roams your desktop and reacts to screen-time events from a local WebSocket backend.",
+  "private": true,
+  "license": "MIT",
+  "author": "Qbit",
+  "desktopName": "qbit-pet.desktop",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "postinstall": "node tools/make-icons.mjs",
+    "icons": "node tools/make-icons.mjs",
+    "dev": "electron-vite dev",
+    "dev:mock": "node tools/dev-all.mjs",
+    "mock": "node tools/mock-backend.mjs",
+    "start": "electron-vite preview",
+    "typecheck": "tsc --noEmit",
+    "test:wire": "node tools/wire-test.mjs",
+    "build": "npm run typecheck && electron-vite build",
+    "pack": "npm run build && electron-builder --dir",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:linux": "npm run build && electron-builder --linux",
+    "dist:all": "npm run build && electron-builder --win --linux"
+  },
+  "dependencies": {
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "@types/ws": "^8.18.2",
+    "electron": "^44.9.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^6.0.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.4"
+  }
+}

@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    />
+    <title>Qbit</title>
+    <link rel="stylesheet" href="./css/base.css" />
+    <link rel="stylesheet" href="./css/panel.css" />
+  </head>
+  <body class="panel">
+    <div class="panel-card">
+      <header class="panel-head">
+        <canvas id="avatar" width="48" height="48"></canvas>
+        <div class="who">
+          <div class="name">
+            Qbit <span class="badge" id="backend-badge">connecting</span>
+          </div>
+          <div class="sub" id="status-line">—</div>
+        </div>
+        <button id="close-btn" class="icon-btn" title="Close (Esc)">×</button>
+      </header>
+
+      <section class="today">
+        <div class="today-value" id="today-value">0m</div>
+        <div class="today-meta">
+          <span id="today-limit">no limit</span> · <span id="today-apps">no activity</span>
+        </div>
+        <div class="meter"><span id="today-meter"></span></div>
+      </section>
+
+      <section class="block">
+        <div class="block-head"><h2>By app</h2><span class="hint" id="chart-hint">today</span></div>
+        <canvas id="bars" class="bars"></canvas>
+        <div class="empty" id="chart-empty">No activity recorded yet today.</div>
+      </section>
+
+      <section class="block">
+        <div class="block-head"><h2>Screen-time limit</h2></div>
+        <div class="row">
+          <input id="limit-input" type="number" min="15" max="1440" step="15" />
+          <span class="unit">minutes</span>
+          <button id="limit-save" class="btn primary">Save</button>
+        </div>
+        <div class="row presets">
+          <button class="btn tiny" data-min="60">1h</button>
+          <button class="btn tiny" data-min="120">2h</button>
+          <button class="btn tiny" data-min="240">4h</button>
+          <button class="btn tiny" data-min="480">8h</button>
+        </div>
+      </section>
+
+      <section class="block">
+        <div class="block-head"><h2>Quick reminder</h2></div>
+        <div class="row">
+          <input id="reminder-text" type="text" placeholder="stretch, drink water, stand up…" maxlength="120" />
+        </div>
+        <div class="row">
+          <input id="reminder-time" type="time" />
+          <button id="reminder-add" class="btn primary">Add</button>
+          <button id="reminder-now" class="btn tiny">now</button>
+        </div>
+      </section>
+
+      <section class="block toggles">
+        <label class="toggle"><input type="checkbox" id="toggle-mute" /> <span>Mute notifications</span></label>
+        <label class="toggle"><input type="checkbox" id="toggle-roam" /> <span>Pause roaming</span></label>
+      </section>
+
+      <section class="block">
+        <div class="block-head">
+          <h2>Mini-games</h2>
+          <span class="hint" id="games-hint">offered when you are idle</span>
+        </div>
+        <div class="row">
+          <button class="btn game-btn" data-game="reaction" disabled>Reaction</button>
+          <button class="btn game-btn" data-game="rps" disabled>Rock·Paper·Scissors</button>
+          <button class="btn game-btn" data-game="dodge" disabled>Dodge</button>
+        </div>
+      </section>
+
+      <footer class="panel-foot">
+        <span id="backend-line" class="mono">ws: —</span>
+        <button id="quit-btn" class="btn tiny danger">Quit Qbit</button>
+      </footer>
+    </div>
+    <script type="module" src="./panel/main.ts"></script>
+  </body>
+</html>
