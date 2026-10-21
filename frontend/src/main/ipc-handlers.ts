@@ -46,8 +46,15 @@ export function registerIpcHandlers(ctx: AppContext): void {
     return ctx.applySettings(patch)
   })
 
+  let lastRegionsKey = ''
   ipcMain.on(IPC.setRegions, (_event, regions: unknown) => {
-    ctx.overlay.setRegions(sanitizeRegions(regions))
+    const clean = sanitizeRegions(regions)
+    const key = clean.map((r) => `${r.x},${r.y},${r.width},${r.height}`).join('|')
+    if (key !== lastRegionsKey) {
+      lastRegionsKey = key
+      log.info(`regions rx n=${clean.length} ${key || '(empty)'}`)
+    }
+    ctx.overlay.setContentRect(clean)
   })
 
   ipcMain.handle(IPC.openPanel, (_event, anchor: unknown) => {

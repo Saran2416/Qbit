@@ -6,7 +6,6 @@ import type {
   GameId,
   InboundMessage,
   OutboundMessage,
-  Point,
   Rect,
   ScreenTimeStats,
   SpriteAtlasPayload,
@@ -37,7 +36,6 @@ export const IPC = {
   /* main -> renderer */
   evBackendMessage: 'qbit:ev-backend-message',
   evBackendStatus: 'qbit:ev-backend-status',
-  evCursor: 'qbit:ev-cursor',
   evLayout: 'qbit:ev-layout',
   evSettings: 'qbit:ev-settings',
   evStats: 'qbit:ev-stats',
@@ -62,7 +60,6 @@ export interface QbitApi {
   /* push subscriptions */
   onBackendMessage(cb: (msg: InboundMessage) => void): Unsubscribe
   onBackendStatus(cb: (status: BackendStatus) => void): Unsubscribe
-  onCursor(cb: (p: Point) => void): Unsubscribe
   onLayout(cb: (layout: VirtualLayout) => void): Unsubscribe
   onSettings(cb: (settings: AppSettings) => void): Unsubscribe
   onStats(cb: (stats: ScreenTimeStats) => void): Unsubscribe

@@ -4,14 +4,15 @@ export type AnchorPreference = 'above' | 'right' | 'auto'
 
 /**
  * Positions a floating DOM element (speech bubble, token chip) relative to the
- * pet and keeps it inside the overlay. Elements are absolutely positioned in a
+ * pet and keeps it inside the desktop. Elements are absolutely positioned in a
  * full-desktop layer, so `getBoundingClientRect()` yields overlay-local CSS px
- * which can be handed straight to the region hub (hit testing lives in main).
+ * which is exactly what the region report to main needs (main sizes the
+ * viewport window around that union).
  */
 export function positionAnchored(
   element: HTMLElement,
   petRect: Rect,
-  bounds: { width: number; height: number },
+  bounds: Rect,
   preference: AnchorPreference = 'auto',
   gap = 10,
   margin = 6
@@ -19,14 +20,18 @@ export function positionAnchored(
   const width = element.offsetWidth
   const height = element.offsetHeight
   const petCenterX = petRect.x + petRect.width / 2
+  const minX = bounds.x + margin
+  const minY = bounds.y + margin
+  const maxX = Math.max(minX, bounds.x + bounds.width - width - margin)
+  const maxY = Math.max(minY, bounds.y + bounds.height - height - margin)
 
   const wantsSide = preference === 'right'
   const sideLeft = petRect.x - width - gap
   const sideRight = petRect.x + petRect.width + gap
-  const sideFitsRight = sideRight + width <= bounds.width - margin
-  const sideFitsLeft = sideLeft >= margin
+  const sideFitsRight = sideRight + width <= bounds.x + bounds.width - margin
+  const sideFitsLeft = sideLeft >= minX
   // 'auto' places the bubble above the pet unless that would leave the screen.
-  const preferSide = wantsSide || (preference === 'auto' && petRect.y - height - gap < margin && (sideFitsRight || sideFitsLeft))
+  const preferSide = wantsSide || (preference === 'auto' && petRect.y - height - gap < minY && (sideFitsRight || sideFitsLeft))
 
   let left: number
   let top: number
@@ -40,11 +45,11 @@ export function positionAnchored(
   } else {
     left = petCenterX - width / 2
     top = petRect.y - height - gap
-    if (top < margin) top = petRect.y + petRect.height * 0.35
+    if (top < minY) top = petRect.y + petRect.height * 0.35
   }
 
-  left = Math.min(Math.max(left, margin), Math.max(margin, bounds.width - width - margin))
-  top = Math.min(Math.max(top, margin), Math.max(margin, bounds.height - height - margin))
+  left = Math.min(Math.max(left, minX), Math.max(minX, maxX))
+  top = Math.min(Math.max(top, minY), Math.max(minY, maxY))
 
   element.style.transform = `translate3d(${Math.round(left)}px, ${Math.round(top)}px, 0)`
   return rectOf(element)

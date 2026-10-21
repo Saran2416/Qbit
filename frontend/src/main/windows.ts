@@ -1,16 +1,12 @@
 import { BrowserWindow, type BrowserWindowConstructorOptions } from 'electron'
 import { join } from 'node:path'
 import { IPC } from '../shared/ipc'
-import { anchorWindow, containsPoint, toLocal } from '../shared/geometry'
-import type { GameId, Point, Rect, VirtualLayout } from '../shared/types'
-import { layoutBounds } from './layout'
+import { anchorWindow, displayAt } from '../shared/geometry'
+import type { GameId, Rect, VirtualLayout } from '../shared/types'
 import { log } from './log'
 
 const PRELOAD = join(__dirname, '../preload/index.js')
 const RENDERER_DIR = join(__dirname, '../renderer')
-
-/** Padding around interactive regions to make fast clicks less likely to slip through. */
-const HIT_PADDING = 4
 
 /**
  * Set while the app is shutting down so a dying renderer (which is normal during
@@ -52,34 +48,78 @@ function webPreferences() {
 
 /* ------------------------------------------------------------------ overlay */
 
+/** Smallest overlay window (a pet at default scale needs ~160 px). */
+const VIEWPORT_MIN = { width: 160, height: 160 }
+/** Extra window space around the interactive content. */
+const VIEWPORT_PAD = 24
+/** Content must leave this margin before the window re-positions (stick-slip). */
+const VIEWPORT_KEEP = 64
+
+function initialBounds(desktop: VirtualLayout): Rect {
+  const primary = desktop.displays.find((d) => d.primary) ?? desktop.displays[0]!
+  const area = primary.workArea
+  return {
+    x: Math.round(area.x + (area.width - VIEWPORT_MIN.width) / 2),
+    y: Math.round(area.y + (area.height - VIEWPORT_MIN.height) / 2),
+    width: VIEWPORT_MIN.width,
+    height: VIEWPORT_MIN.height
+  }
+}
+
+function withWindowBounds(desktop: VirtualLayout, bounds: Rect): VirtualLayout {
+  return {
+    origin: { x: bounds.x, y: bounds.y },
+    size: { width: bounds.width, height: bounds.height },
+    scaleFactor: desktop.scaleFactor,
+    displays: desktop.displays
+  }
+}
+
 /**
- * One transparent, frameless, always-on-top window covering the whole virtual
- * desktop (all monitors). The robot is drawn inside it, so roaming is pure
- * canvas maths instead of moving an OS window around at 30 fps.
+ * A small transparent, frameless, always-on-top window that hugs whatever the
+ * pet is showing (itself, a speech bubble, the token chip) and follows it
+ * around the virtual desktop.
  *
- * Click-through is enforced here, in the main process: the renderer reports the
- * handful of rectangles that are currently interactive (the robot's bounding
- * box, a speech bubble, the token chip) and we toggle
- * `setIgnoreMouseEvents` based on the polled cursor position. A hung renderer
- * therefore makes the overlay *more* transparent to input, never less.
+ * This replaces the old design: one fullscreen window, click-through except in
+ * regions chosen by polling the global cursor position. That design cannot
+ * work on Wayland/XWayland - the global cursor query reports a stale 0,0 there,
+ * and Electron's mouse-move "forwarding" for click-through windows delivers
+ * nothing on Linux - so the overlay could never learn where the cursor was and
+ * stayed click-through forever: nothing, including reminder Done buttons, was
+ * ever clickable.
+ *
+ * Because this window only ever covers interactive content, it is a normal
+ * input-accepting window: enter/move/click arrive natively on every display
+ * server, and everything the pet does not claim (the rest of the screen) still
+ * belongs to the desktop.
  */
 export class OverlayWindow {
   private win: BrowserWindow | null = null
+  /** Full virtual desktop (display list, virtual bounds). */
+  private desktop: VirtualLayout
+  /** What the renderer renders against: origin/size describe the window itself. */
   private layout: VirtualLayout
-  private regions: Rect[] = []
-  private ignoring = true
-  private interactive = false
-  /** bumped whenever the ignore state changes, to void pending re-asserts */
-  private hitEpoch = 0
 
   constructor(private readonly getLayout: () => VirtualLayout) {
-    this.layout = getLayout()
+    this.desktop = getLayout()
+    this.layout = withWindowBounds(this.desktop, initialBounds(this.desktop))
+  }
+
+  /** The layout the renderer maps through (origin = window position). */
+  rendererLayout(): VirtualLayout {
+    return this.layout
   }
 
   create(): void {
     if (this.win && !this.win.isDestroyed()) return
-    this.layout = this.getLayout()
-    const bounds = layoutBounds(this.layout)
+    this.desktop = this.getLayout()
+    const bounds = this.clampBounds({
+      x: this.layout.origin.x,
+      y: this.layout.origin.y,
+      width: this.layout.size.width,
+      height: this.layout.size.height
+    })
+    this.layout = withWindowBounds(this.desktop, bounds)
 
     const options: BrowserWindowConstructorOptions = {
       x: bounds.x,
@@ -112,8 +152,9 @@ export class OverlayWindow {
     win.setAlwaysOnTop(true, 'screen-saver')
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: false })
     win.setSkipTaskbar(true)
-    win.setIgnoreMouseEvents(true, { forward: true })
     win.setFocusable(false)
+    // Deliberately never setIgnoreMouseEvents: the window only covers content
+    // the pet wants clicks for (see class docs).
 
     win.once('ready-to-show', () => {
       win.showInactive() // never steal focus from the app the user is using
@@ -149,94 +190,85 @@ export class OverlayWindow {
   }
 
   /** Called when displays are added/removed/rescaled. */
-  syncLayout(layout: VirtualLayout): void {
-    this.layout = layout
-    const bounds = layoutBounds(layout)
+  syncLayout(desktop: VirtualLayout): void {
+    this.desktop = desktop
     const win = this.win
-    if (win && !win.isDestroyed()) {
-      const current = win.getBounds()
-      if (
-        current.x !== bounds.x ||
-        current.y !== bounds.y ||
-        current.width !== bounds.width ||
-        current.height !== bounds.height
-      ) {
-        win.setBounds(bounds)
-        // Resize can race the X11 input shape (electron#54423): re-assert.
-        try {
-          win.setIgnoreMouseEvents(this.ignoring, { forward: true })
-        } catch (err) {
-          log.debug('overlay: setIgnoreMouseEvents after resize failed', err)
-        }
-      }
-    }
-    this.send(IPC.evLayout, layout)
-  }
-
-  /** Interactive rectangles in overlay-local CSS px, reported by the renderer. */
-  setRegions(regions: Rect[]): void {
-    this.regions = regions
-  }
-
-  applyHitTest(point: Point): void {
-    const win = this.win
-    if (!win || win.isDestroyed()) return
-    const local = toLocal(this.layout, point)
-    const inside = this.regions.some((r) => containsPoint(r, local, HIT_PADDING + (r.width < 8 ? 6 : 0)))
-    if (inside === this.interactive) return
-    this.interactive = inside
-    this.ignoring = !inside
-    log.info(`overlay: mouse input ${inside ? 'accepted (cursor over interactive region)' : 'passed through'}`)
-    this.applyIgnoreState()
+    const current =
+      win && !win.isDestroyed()
+        ? win.getBounds()
+        : {
+            x: this.layout.origin.x,
+            y: this.layout.origin.y,
+            width: this.layout.size.width,
+            height: this.layout.size.height
+          }
+    this.applyBounds(this.clampBounds(current))
+    this.send(IPC.evLayout, this.layout) // display list may have changed
   }
 
   /**
-   * Push the ignore state to the window, and - when becoming interactive -
-   * assert it once more after the event loop has gone idle: X11 input-shape
-   * changes have historically raced the next click (electron#54487), so a
-   * double-assert makes sure the button under the cursor is really clickable.
+   * Interactive rectangles the renderer is currently drawing (robot bbox,
+   * bubble, chip - overlay-local CSS px). The window hugs their union: big
+   * enough to show everything, small enough to leave the desktop alone.
    */
-  private applyIgnoreState(): void {
+  setContentRect(localRects: Rect[]): void {
+    const origin = this.layout.origin
+    let x0 = Infinity
+    let y0 = Infinity
+    let x1 = -Infinity
+    let y1 = -Infinity
+    for (const r of localRects) {
+      if (!Number.isFinite(r.x) || !Number.isFinite(r.y)) continue
+      if (!(r.width > 0) || !(r.height > 0)) continue
+      x0 = Math.min(x0, r.x)
+      y0 = Math.min(y0, r.y)
+      x1 = Math.max(x1, r.x + r.width)
+      y1 = Math.max(y1, r.y + r.height)
+    }
+    if (!Number.isFinite(x0)) return // nothing on screen: keep the window as-is
+    const want: Rect = {
+      x: origin.x + x0 - VIEWPORT_PAD,
+      y: origin.y + y0 - VIEWPORT_PAD,
+      width: x1 - x0 + VIEWPORT_PAD * 2,
+      height: y1 - y0 + VIEWPORT_PAD * 2
+    }
+    const win = this.win
+    const cur =
+      win && !win.isDestroyed()
+        ? win.getBounds()
+        : { x: origin.x, y: origin.y, width: this.layout.size.width, height: this.layout.size.height }
+    // Stick-slip: only move when content would leave the keep-in margin, so a
+    // roaming pet translates the window a few times a minute, not 30x a second.
+    const fits =
+      want.x >= cur.x + VIEWPORT_KEEP &&
+      want.y >= cur.y + VIEWPORT_KEEP &&
+      want.x + want.width <= cur.x + cur.width - VIEWPORT_KEEP &&
+      want.y + want.height <= cur.y + cur.height - VIEWPORT_KEEP
+    if (fits) return
+    this.applyBounds(this.clampBounds(want))
+  }
+
+  /** Keep a window rect fully inside the display it mostly sits on. */
+  private clampBounds(b: Rect): Rect {
+    const display = displayAt(this.desktop, { x: b.x + b.width / 2, y: b.y + b.height / 2 })
+    const area = display.workArea
+    const width = Math.min(Math.max(b.width, VIEWPORT_MIN.width), area.width)
+    const height = Math.min(Math.max(b.height, VIEWPORT_MIN.height), area.height)
+    const x = Math.min(Math.max(b.x, area.x), area.x + area.width - width)
+    const y = Math.min(Math.max(b.y, area.y), area.y + area.height - height)
+    return { x: Math.round(x), y: Math.round(y), width: Math.round(width), height: Math.round(height) }
+  }
+
+  private applyBounds(bounds: Rect): void {
+    this.layout = withWindowBounds(this.desktop, bounds)
     const win = this.win
     if (!win || win.isDestroyed()) return
-    const ignore = this.ignoring
-    try {
-      win.setIgnoreMouseEvents(ignore, { forward: true })
-    } catch (err) {
-      log.debug('overlay: setIgnoreMouseEvents failed', err)
+    const cur = win.getBounds()
+    if (cur.x === bounds.x && cur.y === bounds.y && cur.width === bounds.width && cur.height === bounds.height) {
       return
     }
-    if (ignore) return
-    const stamp = ++this.hitEpoch
-    setTimeout(() => {
-      if (stamp !== this.hitEpoch || this.ignoring) return
-      const w = this.win
-      if (!w || w.isDestroyed()) return
-      try {
-        w.setIgnoreMouseEvents(false, { forward: true })
-      } catch (err) {
-        log.debug('overlay: setIgnoreMouseEvents re-assert failed', err)
-      }
-    }, 150)
-  }
-
-  /** Used when the pet must not react to the mouse at all (e.g. roaming paused). */
-  forceClickThrough(): void {
-    this.regions = []
-    this.interactive = false
-    this.ignoring = true
-    this.hitEpoch++ // void any pending interactive re-assert
-    if (this.win && !this.win.isDestroyed()) {
-      try {
-        this.win.setIgnoreMouseEvents(true, { forward: true })
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-
-  isInteractive(): boolean {
-    return this.interactive
+    win.setBounds(bounds)
+    this.send(IPC.evLayout, this.layout)
   }
 
   /**

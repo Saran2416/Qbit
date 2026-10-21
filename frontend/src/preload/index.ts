@@ -8,7 +8,6 @@ import type {
   GameId,
   InboundMessage,
   OutboundMessage,
-  Point,
   Rect,
   ScreenTimeStats,
   SpriteAtlasPayload,
@@ -31,7 +30,6 @@ const api: QbitApi = {
   /* ------------------------------------------------------------ push events */
   onBackendMessage: (cb: (msg: InboundMessage) => void) => subscribe(IPC.evBackendMessage, cb),
   onBackendStatus: (cb: (status: BackendStatus) => void) => subscribe(IPC.evBackendStatus, cb),
-  onCursor: (cb: (p: Point) => void) => subscribe(IPC.evCursor, cb),
   onLayout: (cb: (layout: VirtualLayout) => void) => subscribe(IPC.evLayout, cb),
   onSettings: (cb: (settings: AppSettings) => void) => subscribe(IPC.evSettings, cb),
   onStats: (cb: (stats: ScreenTimeStats) => void) => subscribe(IPC.evStats, cb),

@@ -1,5 +1,5 @@
 import type { PetCommand } from '../../shared/ipc'
-import { containsPoint, distance, toLocal } from '../../shared/geometry'
+import { containsPoint, distance, toLocal, toVirtual } from '../../shared/geometry'
 import type { Point, Rect, VirtualLayout } from '../../shared/types'
 import { api, installErrorReporting } from '../lib/bridge'
 import { qs } from '../lib/dom'
@@ -34,10 +34,24 @@ async function boot(): Promise<void> {
 
   const canvas = qs<HTMLCanvasElement>('#stage')
   const layer = qs<HTMLElement>('#layer')
-  const bounds = (): { width: number; height: number } => ({
-    width: layout.size.width,
-    height: layout.size.height
-  })
+  /**
+   * The whole desktop expressed in overlay-local CSS px. Bubbles and the chip
+   * clamp to this - not to the viewport window - so they can extend past the
+   * current window, whose union report then tells main to grow it around them.
+   */
+  const bounds = (): Rect => {
+    let x0 = Infinity
+    let y0 = Infinity
+    let x1 = -Infinity
+    let y1 = -Infinity
+    for (const d of layout.displays) {
+      x0 = Math.min(x0, d.bounds.x)
+      y0 = Math.min(y0, d.bounds.y)
+      x1 = Math.max(x1, d.bounds.x + d.bounds.width)
+      y1 = Math.max(y1, d.bounds.y + d.bounds.height)
+    }
+    return { x: x0 - layout.origin.x, y: y0 - layout.origin.y, width: x1 - x0, height: y1 - y0 }
+  }
 
   const painter = new Painter(canvas, layout, atlas)
   const motion = new Motion(layout, motionOptions(atlas, settings))
@@ -72,7 +86,19 @@ async function boot(): Promise<void> {
     log: (level, message) => bridge.log(level, message)
   })
 
-  const regions = new RegionHub((payload) => bridge.setRegions(payload))
+  let lastRegionCount = -1
+  const regions = new RegionHub((payload) => {
+    if (payload.length !== lastRegionCount) {
+      lastRegionCount = payload.length
+      bridge.log(
+        'info',
+        `regions tx n=${payload.length} ${payload
+          .map((r) => `${Math.round(r.x)},${Math.round(r.y)},${Math.round(r.width)}x${Math.round(r.height)}`)
+          .join(' ')}`
+      )
+    }
+    bridge.setRegions(payload)
+  })
 
   let cursor: Point | null = null
   let hovered = false
@@ -141,9 +167,9 @@ async function boot(): Promise<void> {
     wakeLoop()
   })
 
-  bridge.onCursor((point) => {
-    cursor = point
-    const local = toLocal(layout, point)
+  /** Cursor in overlay-local CSS px - one code path for every cursor source. */
+  function applyLocalCursor(local: Point): void {
+    cursor = toVirtual(layout, local)
     const petRect = painter.lastPetRect()
     const isHover = containsPoint(petRect, local, 5)
     if (isHover !== hovered) {
@@ -157,6 +183,18 @@ async function boot(): Promise<void> {
       brain.pulse('idle', 400)
       wakeLoop()
     }
+  }
+
+  // Native mouse events on the viewport window: hover, flee and hit-testing
+  // bookkeeping all run off this (the window covers only the pet's content, so
+  // no global cursor query is needed - and none is reliable on Wayland).
+  // Throttled to ~30 Hz to keep per-frame work cheap.
+  let lastMoveSent = -1e9
+  window.addEventListener('mousemove', (event) => {
+    const now = performance.now()
+    if (now - lastMoveSent < 33) return
+    lastMoveSent = now
+    applyLocalCursor({ x: event.clientX, y: event.clientY })
   })
 
   bridge.onLayout((next) => {

@@ -5,7 +5,6 @@ import { BrowserWindow, app, screen, shell } from 'electron'
 import { IPC, type PetCommand } from '../shared/ipc'
 import type { AppSettings, GameEventData, GameId, InboundMessage, Rect, VirtualLayout } from '../shared/types'
 import type { AppContext } from './context'
-import { CursorTracker } from './cursor'
 import { registerIpcHandlers } from './ipc-handlers'
 import { computeLayout } from './layout'
 import { initLogFile, log } from './log'
@@ -128,6 +127,16 @@ function switchToSoftwareGpu(reason: string): void {
   app.exit(0)
 }
 
+/* -------------------------------------------------------------------------
+ * Dev/test affordance: run against a different data directory. This also
+ * lifts the single-instance lock (it lives in userData), so a second copy -
+ * e.g. on a scratch Xvfb display - can be E2E-tested without touching the
+ * live session, its settings, or its sqlite.
+ *
+ *   QBIT_USER_DATA=/tmp/qbit-test npm start
+ * ------------------------------------------------------------------------ */
+if (process.env.QBIT_USER_DATA) app.setPath('userData', process.env.QBIT_USER_DATA)
+
 const gpuForcedOff = process.env.QBIT_DISABLE_GPU === '1'
 const gpuWantedOn = process.env.QBIT_ENABLE_GPU === '1'
 const gpuArgsPresent = gpuHasSoftwareArgs()
@@ -229,7 +238,9 @@ function bootstrap(): void {
     settings,
     stats,
     tray,
-    getLayout,
+    // The renderer maps virtual coordinates through the *window's* origin,
+    // which now differs from the desktop origin (viewport overlay).
+    getLayout: () => overlay.rendererLayout(),
     statsSnapshot: () => stats.snapshot(),
     broadcast,
     sendToOverlay: (channel, payload) => overlay.send(channel, payload),
@@ -256,11 +267,14 @@ function bootstrap(): void {
       return next
     },
     openPanel: (anchor?: Rect): void => {
+      // Without an explicit anchor (tray, second instance), open next to the
+      // pet: the overlay window hugs it. The global cursor query is not usable
+      // as an anchor on Wayland (stale 0,0).
       const rect: Rect =
         anchor ??
         (() => {
-          const cursor = screen.getCursorScreenPoint()
-          return { x: cursor.x, y: cursor.y, width: 1, height: 1 }
+          const l = overlay.rendererLayout()
+          return { x: l.origin.x, y: l.origin.y, width: l.size.width, height: l.size.height }
         })()
       panel.open(rect)
       // Fresh numbers the moment the panel appears.
@@ -311,12 +325,6 @@ function bootstrap(): void {
 
   /* --------------------------------------------------------------- loops */
 
-  const cursor = new CursorTracker((point, moved) => {
-    if (moved) overlay.send(IPC.evCursor, point)
-    overlay.applyHitTest(point) // the click-through guarantee
-  })
-  cursor.start()
-
   const tickTimer = setInterval(() => {
     stats.tick()
     const { warn, totalMinutes, limitMinutes } = stats.checkLimit()
@@ -356,7 +364,6 @@ function bootstrap(): void {
   app.on('will-quit', () => {
     clearInterval(tickTimer)
     clearInterval(persistTimer)
-    cursor.stop()
     stopWatchingSprites?.()
     reminders.dispose()
     stats.persistIfDirty()

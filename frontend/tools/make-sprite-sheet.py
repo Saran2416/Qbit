@@ -7,11 +7,11 @@ Usage:
 
 Pipeline:
     1. cut the background out against a fitted backdrop model: a degree-3
-       polynomial of the studio gradient, refitted on confident pixels, so
-       every pixel is tested for "is this the backdrop, a uniform shadow of
-       it, or the robot?" - which survives the soft ambient-occlusion edge
-       under the cube where no gradient edge exists. Border connectivity plus
-       small-island removal clean up the stragglers (deep shadow smudges).
+       polynomial of the studio gradient, refitted on confident pixels. Only
+       what the model *explains* is eaten (true backdrop), reached from the
+       frame edge - so the robot, its soft ground shadow and the cube's
+       ambient-occlusion underside (all 40-200 levels off-model) survive
+       untouched, and orphan specks of fit noise are dropped as islands.
     2. redraw the eyes for each expression on the full-resolution cutout
        (open / blink / closed / wide / happy-arc),
     3. trim to the robot, downscale to sprite size, then animate each clip
@@ -51,12 +51,14 @@ ARC_BROW_H = 78                      # happy-arc bbox height (shallower = cuter)
 
 # --- background model (colour-based cutout) --------------------------------
 BORDER_BAND = 40     # px band around the edge used to fit the backdrop
-T_BG = 12.0          # max |pixel-model| (per channel) to call a pixel backdrop
+T_BG = 10.0          # max |pixel-model| (per channel) to call a pixel backdrop
 T_BRIDGE = 20.0      # looser cap for flood *continuation* only (fit error)
-K_MIN = 0.60         # shadow: backdrop scaled by k, still part of the backdrop...
-K_MAX = 0.97         # ...darker than this is the robot (its feet are neutral,
-                     # k~0.35-0.58, while the deep shadow core is k~0.60-0.70)
-SPREAD_MAX = 0.17    # shadow keeps the backdrop's hue, going bluer when deep
+EDGE_STEP = 8.0      # colour range over a 5px window that forms the silhouette
+                     # wall: anti-aliasing spreads a 21-level outline step over
+                     # 4-5px (only ~5/px, too soft for a per-pixel test), while
+                     # a windowed range still reads the full step there - and
+                     # backdrop noise stays under 6 even inside the window, so
+                     # only real outlines wall off the flood
 MIN_ISLAND = 600     # robot specks smaller than this (at 1/4 scale) get dropped
 EDGE_DILATE = 2      # px to push the matte back out over the true edge
 FEATHER = 1.4        # matte blur radius
@@ -172,25 +174,69 @@ def _drop_islands(robot: np.ndarray, min_area: int) -> np.ndarray:
 
 
 def background_mask(rgb: np.ndarray) -> np.ndarray:
-    """True where a pixel is part of the backdrop (including its shadow).
+    """True where a pixel is part of the studio backdrop.
 
-    Rules, all relative to the fitted backdrop model `m`:
-      * "normal" backdrop: colour equals the model within T_BG;
-      * "shadow": a uniform darkening of the model (same hue, ratio
-        K_MIN..K_MAX) - that is what the drop shadow is;
-    then only backdrop pixels connected to the frame edge count (a first pass
-    at T_BG, with a T_BRIDGE pass to hop across fit-error noise), and finally
-    robot islands too small to be the robot get dropped.
+    The fitted model `m` describes the backdrop's smooth gradient, so the rule
+    is deliberately simple: eat whatever the model explains within T_BG (and
+    bridge fit-error gaps up to T_BRIDGE) - but only if it is connected to the
+    frame edge, only outside the silhouette wall, and after dropping orphan
+    specks. Everything the model does not explain (robot, contact shadow)
+    survives untouched:
+
+      * the robot is off-model by 40-200 levels everywhere - feet, shell,
+        face screen;
+      * the drop shadow stays (diff ~70), so the sprite keeps its soft ground
+        shadow and the pet looks grounded instead of floating;
+      * that shadow then forms an un-crossable wall around the robot's base,
+        shielding the cube's underside - its ambient-occlusion band is also
+        120+ levels off-model and can simply never be reached by the flood
+        (the old k-ratio "shadow rule" is what used to nibble it off);
+      * the cube's shaded side face has a tonal zone that coincides with the
+        backdrop model within ~14 levels - colour can never separate that, so
+        a windowed-gradient wall (EDGE_STEP) along the outline seals the flood
+        out while backdrop and face interiors (windowed range <= 6) stay open.
     """
     p = rgb.astype(np.float64)
     m = fit_backdrop(rgb)
-    ratio = p / np.maximum(m, 1.0)
-    k = ratio.mean(axis=2)
-    spread = ratio.max(axis=2) - ratio.min(axis=2)
     diff = np.abs(p - m).max(axis=2)
 
-    strict = (diff <= T_BG) | ((k >= K_MIN) & (k <= K_MAX) & (spread <= SPREAD_MAX))
-    loose = (diff <= T_BRIDGE) & (k >= K_MIN - 0.1) & (k <= 1.35) & (spread <= 0.2)
+    # 5px-windowed colour range: robust to anti-aliased (soft) outline steps
+    # that a per-pixel gradient would miss between two adjacent pixels.
+    win = 2
+    lo = p.copy()
+    hi = p.copy()
+    for axis, size in ((1, p.shape[1]), (0, p.shape[0])):
+        for shift in range(1, win + 1):
+            np.minimum(lo, np.roll(p, shift, axis=axis), out=lo)
+            np.minimum(lo, np.roll(p, -shift, axis=axis), out=lo)
+            np.maximum(hi, np.roll(p, shift, axis=axis), out=hi)
+            np.maximum(hi, np.roll(p, -shift, axis=axis), out=hi)
+    # np.roll wraps at the image border; force those columns/rows to "no edge"
+    lo[0], hi[0] = p[0], p[0]
+    lo[-1], hi[-1] = p[-1], p[-1]
+    lo[:, 0], hi[:, 0] = p[:, 0], p[:, 0]
+    lo[:, -1], hi[:, -1] = p[:, -1], p[:, -1]
+    wall = (hi - lo).max(axis=2) >= EDGE_STEP
+
+    # Hand-traced rear-left silhouette (this avatar): along the upper-left
+    # outline the backdrop and the cube's shaded face are tonally continuous
+    # (windowed range dips to 3-7 even over 9px), so no gradient threshold
+    # can seal the flood there - it leaked across and ate the whole side
+    # face, which coincides with the backdrop model within ~20 everywhere.
+    # Force a wall along the traced line instead; everything it protects is
+    # solid cube (verified against the source at 3x zoom).
+    trace_y = np.array([312, 330, 350, 370, 400, 450, 500, 530, 560, 600,
+                        630, 660, 690, 720, 750, 790, 820, 850, 880, 910, 935])
+    trace_x = np.array([284, 262, 248, 240, 236, 236, 236, 229, 222, 219,
+                        220, 225, 234, 241, 242, 244, 252, 274, 288, 288, 300])
+    sline = np.interp(np.arange(wall.shape[0]), trace_y, trace_x)
+    for y in range(int(trace_y[0]), int(trace_y[-1]) + 1):
+        x0 = int(sline[y]) - 3   # keep a hair of the backdrop AO rim opaque
+        x1 = int(sline[y]) + 12  # and seal the face side generously
+        wall[y, x0:x1] = True
+
+    strict = (diff <= T_BG) & ~wall
+    loose = (diff <= T_BRIDGE) & ~wall
 
     seed = np.zeros(strict.shape, dtype=bool)
     seed[0, :] = strict[0, :]

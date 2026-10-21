@@ -34,7 +34,7 @@ interface BubbleRecord extends Required<Pick<BubbleOptions, 'id' | 'kind' | 'tex
 
 export interface BubbleHostOptions {
   layer: HTMLElement
-  bounds: { width: number; height: number }
+  bounds: Rect
   defaultDurationMs: number
   maxBubbles: number
   /** called when the user (or the timer) closes a bubble: forwards "dismiss" */
@@ -213,7 +213,7 @@ export class BubbleHost {
     return rects
   }
 
-  setBounds(bounds: { width: number; height: number }): void {
+  setBounds(bounds: Rect): void {
     this.opts.bounds = bounds
   }
 

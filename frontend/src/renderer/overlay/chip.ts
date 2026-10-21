@@ -5,7 +5,7 @@ import { formatTokens } from '../lib/format'
 
 export interface TokenChipOptions {
   layer: HTMLElement
-  bounds: { width: number; height: number }
+  bounds: Rect
   /** how long the chip stays visible after the last update */
   ttlMs: number
 }
@@ -80,7 +80,7 @@ export class TokenChip {
     return [positionAnchored(this.element, petRect, bounds, 'right', 10)]
   }
 
-  setBounds(bounds: { width: number; height: number }): void {
+  setBounds(bounds: Rect): void {
     this.opts.bounds = bounds
   }
 
