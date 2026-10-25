@@ -398,7 +398,9 @@ function handleBackendMessage(msg: InboundMessage): void {
 
     case 'idle_state':
       stats.setIdle(msg.data.idle)
-      ctx.sendToOverlay(IPC.evBackendMessage, msg)
+      // Broadcast: the panel updates its mini-game hint (and offer state)
+      // from the same idle transitions the pet reacts to.
+      ctx.broadcast(IPC.evBackendMessage, msg)
       break
 
     case 'screen_time_stats':

@@ -114,10 +114,9 @@ function boot(): void {
   }
 
   function renderIdle(next: boolean): void {
-    for (const button of document.querySelectorAll<HTMLButtonElement>('.game-btn')) {
-      button.disabled = !next
-    }
-    els.gamesHint.textContent = next ? "you're idle — good time for a game" : 'offered when you are idle'
+    // Games are always playable from the panel — idle only changes the hint.
+    // (The pet still *offers* a game on its own after a while of idleness.)
+    els.gamesHint.textContent = next ? "you're idle — good time for a game" : 'play anytime'
   }
 
   function renderBackend(state: string, attempt: number, url: string): void {
