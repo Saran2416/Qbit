@@ -53,7 +53,8 @@ const api: QbitApi = {
   reportGame: (data: GameEventData) => ipcRenderer.send(IPC.reportGame, data),
   addReminder: (text: string, dueAt?: number) => ipcRenderer.invoke(IPC.addReminder, text, dueAt) as Promise<void>,
   setLimit: (minutes: number) => ipcRenderer.invoke(IPC.setLimit, minutes) as Promise<AppSettings>,
-  dismiss: (id?: string, kind?: string) => ipcRenderer.invoke(IPC.dismiss, id, kind) as Promise<void>,
+  dismiss: (id?: string, kind?: string, text?: string, dueAt?: number) =>
+    ipcRenderer.invoke(IPC.dismiss, id, kind, text, dueAt) as Promise<void>,
   send: (msg: OutboundMessage) => ipcRenderer.send(IPC.sendOutbound, msg),
   saveCanvasSnapshot: (dataUrl: string) => ipcRenderer.send(IPC.canvasSnapshot, dataUrl),
   quit: () => ipcRenderer.send(IPC.quit),

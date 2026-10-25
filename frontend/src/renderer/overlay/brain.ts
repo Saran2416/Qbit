@@ -13,7 +13,7 @@ import type { BubbleAction, BubbleHost } from './bubbles'
 import type { TokenChip } from './chip'
 import type { MotionSnapshot } from './motion'
 
-export type PetBehavior = 'idle' | 'walk' | 'sleep' | 'alert' | 'happy' | 'flee' | 'paused'
+export type PetBehavior = 'idle' | 'walk' | 'sleep' | 'rest' | 'alert' | 'happy' | 'flee' | 'paused'
 
 export interface BrainSnapshot {
   behavior: PetBehavior
@@ -344,6 +344,9 @@ export class Brain {
       behavior = 'walk'
     } else if (clipOverride === 'alert' || clipOverride === 'happy') {
       behavior = clipOverride
+    } else if (motion.resting) {
+      // periodic 10 s break: a light doze, not real sleep (no deep-sleep timer)
+      behavior = 'rest'
     } else {
       behavior = this.busy(now, settings) ? 'idle' : 'sleep'
     }
@@ -366,7 +369,7 @@ export class Brain {
     this.look = cursor && motion.cursorDistance < 420 ? (cursor.x < motion.x - 8 ? -1 : cursor.x > motion.x + 8 ? 1 : 0) : 0
 
     const clip: PetClip =
-      behavior === 'sleep'
+      behavior === 'sleep' || behavior === 'rest'
         ? 'sleep'
         : behavior === 'walk' || behavior === 'flee'
           ? 'walk'

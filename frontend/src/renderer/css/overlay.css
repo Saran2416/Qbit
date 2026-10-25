@@ -97,7 +97,8 @@ canvas#stage {
 }
 
 .bubble-btn {
-  padding: 4px 9px;
+  padding: 5px 12px;
+  min-height: 24px;
   border-radius: 999px;
   border: 1px solid var(--line);
   background: rgba(79, 157, 255, 0.12);
@@ -235,4 +236,89 @@ canvas#stage {
 
 .token-chip.compact .token-chip-track {
   display: none;
+}
+
+/* ------------------------------------------------------------- ctx menu */
+
+.ctx-menu {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 30;
+  min-width: 216px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: linear-gradient(180deg, rgba(27, 37, 54, 0.98), rgba(14, 20, 32, 0.99));
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  pointer-events: auto;
+  font-size: 12.5px;
+  color: var(--text);
+  animation: bubble-in 140ms ease;
+}
+
+.ctx-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 3px 9px 7px;
+  margin-bottom: 3px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ctx-title {
+  font-weight: 650;
+  letter-spacing: 0.2px;
+}
+
+.ctx-clock {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  font-size: 11.5px;
+}
+
+.ctx-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 7px 9px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  text-align: left;
+  transition: background 100ms ease;
+}
+
+.ctx-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.ctx-item:active {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.ctx-item.danger {
+  color: var(--danger);
+}
+
+.ctx-check {
+  color: var(--good);
+  font-size: 12px;
+}
+
+.ctx-hint {
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.ctx-sep {
+  height: 1px;
+  margin: 4px 7px;
+  background: rgba(255, 255, 255, 0.08);
 }

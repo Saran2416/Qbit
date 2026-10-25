@@ -1,4 +1,4 @@
-import type { AppSettings, ScreenTimeStats } from '../../shared/types'
+import type { AppSettings, ReminderData, ScreenTimeStats } from '../../shared/types'
 import { api, installErrorReporting } from '../lib/bridge'
 import { qs } from '../lib/dom'
 import { categoryColor, formatDuration, truncate } from '../lib/format'
@@ -32,8 +32,12 @@ function boot(): void {
     reminderTime: qs<HTMLInputElement>('#reminder-time'),
     reminderAdd: qs<HTMLButtonElement>('#reminder-add'),
     reminderNow: qs<HTMLButtonElement>('#reminder-now'),
+    reminderList: qs<HTMLElement>('#reminder-list'),
     toggleMute: qs<HTMLInputElement>('#toggle-mute'),
     toggleRoam: qs<HTMLInputElement>('#toggle-roam'),
+    petSize: qs<HTMLInputElement>('#pet-size'),
+    petSizeLabel: qs<HTMLElement>('#pet-size-label'),
+    clock: qs<HTMLElement>('#clock'),
     gamesHint: qs<HTMLElement>('#games-hint'),
     backendLine: qs<HTMLElement>('#backend-line'),
     quitBtn: qs<HTMLButtonElement>('#quit-btn'),
@@ -72,6 +76,41 @@ function boot(): void {
     if (document.activeElement !== els.limitInput) els.limitInput.value = String(next.screenTimeLimitMinutes)
     els.toggleMute.checked = next.muted
     els.toggleRoam.checked = next.roamPaused
+    if (document.activeElement !== els.petSize) els.petSize.value = String(next.petScale)
+    els.petSizeLabel.textContent = `${Math.round(next.petScale * 100)}%`
+  }
+
+  /** Pending reminders the backend still holds, newest due time first. */
+  function renderReminders(list: ReminderData[]): void {
+    const sorted = [...list].sort((a, b) => (a.dueAt ?? Infinity) - (b.dueAt ?? Infinity))
+    els.reminderList.replaceChildren()
+    for (const reminder of sorted) {
+      const item = document.createElement('li')
+      item.className = 'reminder-item'
+      const label = document.createElement('span')
+      label.className = 'reminder-label'
+      const when = reminder.dueAt
+        ? new Date(reminder.dueAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : 'now'
+      label.textContent = `${when} · ${reminder.text}`
+      const cancel = document.createElement('button')
+      cancel.className = 'reminder-cancel'
+      cancel.title = 'Cancel this reminder'
+      cancel.textContent = '×'
+      cancel.addEventListener('click', () => {
+        // Also cancels the local twin of a panel-added reminder (see main).
+        void bridge.dismiss(reminder.id, 'reminder', reminder.text, reminder.dueAt)
+        item.remove()
+        refreshBackendStats()
+      })
+      item.append(label, cancel)
+      els.reminderList.appendChild(item)
+    }
+    els.reminderList.style.display = sorted.length > 0 ? 'flex' : 'none'
+  }
+
+  function refreshBackendStats(): void {
+    bridge.send({ type: 'get_stats', data: {} })
   }
 
   function renderIdle(next: boolean): void {
@@ -153,6 +192,8 @@ function boot(): void {
     const dueAt = useTime ? dueAtFromTime(els.reminderTime.value) : undefined
     void bridge.addReminder(text, dueAt)
     els.reminderText.value = ''
+    // The list is backend-tracked: ask for a fresh one after the add lands.
+    setTimeout(refreshBackendStats, 400)
   }
 
   els.reminderAdd.addEventListener('click', () => addReminder(true))
@@ -167,6 +208,24 @@ function boot(): void {
   els.toggleRoam.addEventListener('change', () => {
     void bridge.updateSettings({ roamPaused: els.toggleRoam.checked }).then(renderSettings)
   })
+
+  els.petSize.addEventListener('input', () => {
+    const scale = Number(els.petSize.value)
+    if (!Number.isFinite(scale)) return
+    els.petSizeLabel.textContent = `${Math.round(scale * 100)}%`
+    void bridge.updateSettings({ petScale: scale })
+  })
+
+  // Live clock: the panel keeps real time while it is open.
+  const tickClock = (): void => {
+    els.clock.textContent = new Date().toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    })
+  }
+  tickClock()
+  setInterval(tickClock, 1000)
 
   for (const button of document.querySelectorAll<HTMLButtonElement>('.game-btn')) {
     button.addEventListener('click', () => {
@@ -198,9 +257,15 @@ function boot(): void {
     renderStats(stats)
   })
   bridge.onSettings(renderSettings)
-  bridge.onBackendStatus((status) => renderBackend(status.state, status.attempt, status.url))
+  bridge.onBackendStatus((status) => {
+    renderBackend(status.state, status.attempt, status.url)
+    // Reconnects get fresh stats pushed anyway; asking also covers the first
+    // open after the panel mounted late.
+    if (status.state === 'open') refreshBackendStats()
+  })
   bridge.onBackendMessage((msg) => {
     if (msg.type === 'idle_state') renderIdle(msg.data.idle)
+    if (msg.type === 'screen_time_stats') renderReminders(msg.data.activeReminders ?? [])
   })
 
   void bridge.getSnapshot().then((snapshot) => {
@@ -213,6 +278,8 @@ function boot(): void {
     lastStats = stats
     renderStats(stats)
   })
+  renderReminders([])
+  refreshBackendStats()
   renderIdle(false)
 }
 

@@ -10,7 +10,7 @@ const MAX_DELAY_MS = 2_147_000_000
  * running (or is restarted).
  */
 export class ReminderScheduler {
-  private readonly timers = new Map<string, NodeJS.Timeout>()
+  private readonly timers = new Map<string, { timer: NodeJS.Timeout; text: string; dueAt?: number }>()
   private seq = 0
 
   constructor(private readonly deliver: (reminder: ReminderData) => void) {}
@@ -34,20 +34,39 @@ export class ReminderScheduler {
       this.deliver(reminder)
     }, delay)
     timer.unref?.()
-    this.timers.set(id, timer)
+    this.timers.set(id, { timer, text, dueAt })
     log.info(`reminders: "${text}" scheduled in ${Math.round(delay / 60000)} min`)
     return id
   }
 
   cancel(id: string): void {
-    const timer = this.timers.get(id)
-    if (!timer) return
-    clearTimeout(timer)
+    const entry = this.timers.get(id)
+    if (!entry) return
+    clearTimeout(entry.timer)
     this.timers.delete(id)
   }
 
+  /**
+   * Cancel every pending timer that matches a reminder the *backend* knows by
+   * id: panel-added reminders exist in both places, and cancelling only the
+   * backend copy would still let the local twin fire. Due times are matched
+   * with a small tolerance (wire conversion rounds to whole ms).
+   */
+  cancelMatching(text: string, dueAt?: number): number {
+    let cancelled = 0
+    for (const [id, entry] of this.timers) {
+      if (entry.text !== text) continue
+      if (typeof dueAt === 'number' && typeof entry.dueAt === 'number' && Math.abs(entry.dueAt - dueAt) > 1500) continue
+      clearTimeout(entry.timer)
+      this.timers.delete(id)
+      cancelled++
+    }
+    if (cancelled > 0) log.info(`reminders: cancelled ${cancelled} local timer(s) for "${text}"`)
+    return cancelled
+  }
+
   dispose(): void {
-    for (const timer of this.timers.values()) clearTimeout(timer)
+    for (const entry of this.timers.values()) clearTimeout(entry.timer)
     this.timers.clear()
   }
 }

@@ -19,6 +19,7 @@ export const IPC = {
   getStats: 'qbit:get-stats',
   updateSettings: 'qbit:update-settings',
   setRegions: 'qbit:set-regions',
+  hitEvent: 'qbit:hit-event',
   openPanel: 'qbit:open-panel',
   closePanel: 'qbit:close-panel',
   openGame: 'qbit:open-game',
@@ -82,7 +83,7 @@ export interface QbitApi {
   reportGame(data: GameEventData): void
   addReminder(text: string, dueAt?: number): Promise<void>
   setLimit(minutes: number): Promise<AppSettings>
-  dismiss(id?: string, kind?: string): Promise<void>
+  dismiss(id?: string, kind?: string, text?: string, dueAt?: number): Promise<void>
   send(msg: OutboundMessage): void
   /** Debug only: hands the overlay canvas to main, which writes it to disk. */
   saveCanvasSnapshot(dataUrl: string): void

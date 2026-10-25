@@ -7,12 +7,15 @@ export const DEFAULT_SETTINGS: AppSettings = {
   screenTimeLimitMinutes: 120,
   cursorAvoidRadius: 150,
   roamSpeed: 42,
-  petScale: 1,
+  /** A little smaller than life size: the full 128px sprite reads as huge. */
+  petScale: 0.85,
   idlePlayOfferDelayMs: 8000,
   bubbleDurationMs: 9000,
   maxBubbles: 3,
   sleepAfterMs: 90_000,
   deepSleepAfterMs: 60_000,
+  restEveryMinutes: 2,
+  restForSeconds: 10,
   backendAutoStartMock: false,
   showDebug: false
 }
@@ -47,6 +50,8 @@ export function sanitizeSettings(raw: unknown): AppSettings {
     maxBubbles: num(r.maxBubbles, DEFAULT_SETTINGS.maxBubbles, 1, 6),
     sleepAfterMs: num(r.sleepAfterMs, DEFAULT_SETTINGS.sleepAfterMs, 10_000, 3_600_000),
     deepSleepAfterMs: num(r.deepSleepAfterMs, DEFAULT_SETTINGS.deepSleepAfterMs, 5_000, 3_600_000),
+    restEveryMinutes: num(r.restEveryMinutes, DEFAULT_SETTINGS.restEveryMinutes, 0, 60),
+    restForSeconds: num(r.restForSeconds, DEFAULT_SETTINGS.restForSeconds, 1, 300),
     backendAutoStartMock: bool(r.backendAutoStartMock, DEFAULT_SETTINGS.backendAutoStartMock),
     showDebug: bool(r.showDebug, DEFAULT_SETTINGS.showDebug)
   }

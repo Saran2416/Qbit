@@ -1,7 +1,7 @@
 import { clampToRect, displayAt, distance, pathStaysOnDisplays } from '../../shared/geometry'
 import type { Point, Rect, VirtualLayout } from '../../shared/types'
 
-export type MotionMode = 'idle' | 'walk' | 'flee' | 'paused'
+export type MotionMode = 'idle' | 'walk' | 'flee' | 'paused' | 'rest'
 
 export interface MotionOptions {
   /** walking speed, CSS px per second */
@@ -10,6 +10,10 @@ export interface MotionOptions {
   avoidRadius: number
   petWidth: number
   petHeight: number
+  /** ms of roaming between rest breaks (0 = no rest cycle) */
+  restEveryMs: number
+  /** ms a rest break lasts */
+  restMs: number
 }
 
 export interface MotionSnapshot {
@@ -21,6 +25,8 @@ export interface MotionSnapshot {
   cursorDistance: number
   /** ms since the pet last moved: drives the sleep timer */
   idleForMs: number
+  /** true while the periodic rest break is running */
+  resting: boolean
 }
 
 const EDGE_MARGIN = 10
@@ -79,6 +85,9 @@ export class Motion {
   private fleeRecalcAt = 0
   private lastMovedAt = performance.now()
   private lastCursorDistance = Number.POSITIVE_INFINITY
+  /** periodic rest break: 0 = not resting, else the performance.now() deadline */
+  private restUntil = 0
+  private nextRestAt = 0
 
   constructor(
     private layout: VirtualLayout,
@@ -86,6 +95,7 @@ export class Motion {
     private readonly rng: () => number = Math.random
   ) {
     this.place()
+    this.nextRestAt = performance.now() + (this.opts.restEveryMs > 0 ? this.opts.restEveryMs : 120_000)
   }
 
   /* --------------------------------------------------------------- control */
@@ -104,13 +114,26 @@ export class Motion {
 
   setOptions(patch: Partial<MotionOptions>): void {
     this.opts = { ...this.opts, ...patch }
+    // A stale deadline (rest cycle was disabled/enabled) must not fire instantly.
+    const now = performance.now()
+    if (this.opts.restEveryMs > 0 && this.nextRestAt < now) this.nextRestAt = now + this.opts.restEveryMs
     this.clampToWalkable()
   }
 
   /** Force an immediate new decision (used when the user wakes the pet). */
   wake(): void {
     this.pauseUntil = 0
-    if (this.mode === 'idle') this.mode = 'walk'
+    this.restUntil = 0
+    // Being roused starts a fresh roaming stretch - no instant "wake up and
+    // immediately sit down again" after a long deep sleep.
+    if (this.opts.restEveryMs > 0) this.nextRestAt = performance.now() + this.opts.restEveryMs
+    // Already busy: let the current walk/flee finish. Otherwise stand down to
+    // idle so the next update() picks a fresh target ('walk' with no target
+    // would freeze the pet in place).
+    if ((this.mode === 'walk' && this.target) || this.mode === 'flee') return
+    this.target = null
+    this.targetS = null
+    this.mode = 'idle'
   }
 
   /** Teleport to a sensible spot (screen change, first run). */
@@ -125,6 +148,7 @@ export class Motion {
     this.target = null
     this.targetS = null
     this.mode = 'idle'
+    this.restUntil = 0
     this.pauseUntil = performance.now() + 1200
   }
 
@@ -136,7 +160,8 @@ export class Motion {
       mode: this.mode,
       moving: this.mode === 'walk' || this.mode === 'flee',
       cursorDistance: this.lastCursorDistance,
-      idleForMs: now - this.lastMovedAt
+      idleForMs: now - this.lastMovedAt,
+      resting: this.mode === 'rest'
     }
   }
 
@@ -150,13 +175,21 @@ export class Motion {
       this.mode = 'paused'
       this.target = null
       this.targetS = null
+      this.restUntil = 0
       return this.snapshot(now)
+    }
+
+    // Leaving "pause roaming": stand down to idle so the walk resumes
+    // immediately (previously the pet froze in 'paused' until startled).
+    if (this.mode === 'paused') {
+      this.mode = 'idle'
+      this.pauseUntil = 0
     }
 
     this.lastCursorDistance = cursor ? distance(this.pos, cursor) : Number.POSITIVE_INFINITY
     const near = cursor !== null && this.lastCursorDistance < this.opts.avoidRadius
 
-    if (near && this.mode !== 'paused') {
+    if (near) {
       if (this.mode !== 'flee' || now >= this.fleeRecalcAt) {
         this.mode = 'flee'
         this.targetS = null // fleeing is always a straight dash
@@ -167,6 +200,29 @@ export class Motion {
       this.mode = 'idle'
       this.target = null
       this.pauseUntil = now + 500
+    }
+
+    // Periodic rest break: every restEveryMs the pet stops for restMs, sitting
+    // down where it stands (the brain shows the sleep clip). A cursor that
+    // gets too close startles it out of the break early.
+    if (this.restUntil > 0) {
+      if (this.mode === 'flee') {
+        this.restUntil = 0
+      } else if (now < this.restUntil) {
+        this.mode = 'rest'
+        this.target = null
+        this.targetS = null
+      } else {
+        this.restUntil = 0
+        this.mode = 'idle'
+        this.pauseUntil = now + 700
+      }
+    } else if (this.opts.restEveryMs > 0 && now >= this.nextRestAt && !opts.blocked && this.mode !== 'flee') {
+      this.restUntil = now + Math.max(1000, this.opts.restMs)
+      this.nextRestAt = now + this.opts.restEveryMs
+      this.mode = 'rest'
+      this.target = null
+      this.targetS = null
     }
 
     if (this.mode === 'idle') {

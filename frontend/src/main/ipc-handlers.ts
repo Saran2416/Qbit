@@ -13,6 +13,7 @@ const OUTBOUND_TYPES: ReadonlySet<string> = new Set<string>([
   'ping',
   'dismiss',
   'reminder_add',
+  'get_stats',
   'set_limit',
   'set_muted',
   'game_event'
@@ -57,6 +58,25 @@ export function registerIpcHandlers(ctx: AppContext): void {
     ctx.overlay.setContentRect(clean)
   })
 
+  // Invisible catcher windows re-send their DOM mouse events here; main maps
+  // them into overlay-local coordinates and re-injects them into the overlay
+  // renderer (the only input path that works on Wayland/XWayland).
+  let lastHitLog = 0
+  ipcMain.on(IPC.hitEvent, (event, payload: unknown) => {
+    ctx.overlay.forwardHitEvent(event.sender, payload)
+    const p = payload as { type?: string; x?: number; y?: number } | null
+    if (!p || typeof p !== 'object') return
+    if (p.type === 'mouseMove') {
+      if (Date.now() - lastHitLog > 1500) {
+        lastHitLog = Date.now()
+        log.info(`hit rx move ${p.x},${p.y}`)
+      }
+    } else {
+      lastHitLog = Date.now()
+      log.info(`hit rx ${p.type} ${p.x},${p.y}`)
+    }
+  })
+
   ipcMain.handle(IPC.openPanel, (_event, anchor: unknown) => {
     const rect = sanitizeRect(anchor)
     ctx.openPanel(rect ?? undefined)
@@ -92,8 +112,13 @@ export function registerIpcHandlers(ctx: AppContext): void {
     return ctx.setLimit(value)
   })
 
-  ipcMain.handle(IPC.dismiss, (_event, id: unknown, kind: unknown) => {
-    ctx.dismiss(typeof id === 'string' ? id : undefined, typeof kind === 'string' ? kind : undefined)
+  ipcMain.handle(IPC.dismiss, (_event, id: unknown, kind: unknown, text: unknown, dueAt: unknown) => {
+    ctx.dismiss(
+      typeof id === 'string' ? id : undefined,
+      typeof kind === 'string' ? kind : undefined,
+      typeof text === 'string' ? text : undefined,
+      typeof dueAt === 'number' && Number.isFinite(dueAt) ? dueAt : undefined
+    )
   })
 
   ipcMain.on(IPC.sendOutbound, (_event, message: unknown) => {

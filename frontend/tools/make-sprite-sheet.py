@@ -11,10 +11,15 @@ Pipeline:
        what the model *explains* is eaten (true backdrop), reached from the
        frame edge - so the robot, its soft ground shadow and the cube's
        ambient-occlusion underside (all 40-200 levels off-model) survive
-       untouched, and orphan specks of fit noise are dropped as islands.
-    2. redraw the eyes for each expression on the full-resolution cutout
+       the flood, and orphan specks of fit noise are dropped as islands.
+    2. erase everything below the hand-traced bottom silhouette
+       (BOTTOM_TRACE): the studio ground shadow is darker in its core (0.16x
+       model) than the feet themselves (0.27x), so colour can never tell the
+       two apart - trace the robot's real bottom edge once, cut once, and
+       the sprite keeps only the robot.
+    3. redraw the eyes for each expression on the full-resolution cutout
        (open / blink / closed / wide / happy-arc),
-    3. trim to the robot, downscale to sprite size, then animate each clip
+    4. trim to the robot, downscale to sprite size, then animate each clip
        with per-frame bob / tilt / jump transforms,
     4. lay out one row per clip and emit robot.json next to it.
 
@@ -35,10 +40,13 @@ SRC = HERE / "sprites" / "avatar-source.png"
 OUT_PNG = HERE / "sprites" / "robot.png"
 OUT_JSON = HERE / "sprites" / "robot.json"
 
-FRAME = 128          # px, one cell of the sheet (renderScale 1.0 -> 1:1)
+FRAME = 128          # px, minimum cell size of the sheet (renderScale 1.0 -> 1:1)
 ROBOT_H = 110        # robot height inside a frame before transforms
 FEET_Y = 125         # bbox bottom inside a frame (3px pad for rotation)
 COLS = 8             # widest clip (walk / happy)
+PAD = 6              # min transparent margin between the sprite and a cell edge;
+                     # cells widen beyond FRAME when robot+shadow need it, so the
+                     # art is never sliced at the frame boundary
 DEBUG_DIR = Path("/tmp/opencode/sprite-debug")
 
 # --- calibration: face features in source-pixel coords (1254x1254) ----------
@@ -62,6 +70,23 @@ EDGE_STEP = 8.0      # colour range over a 5px window that forms the silhouette
 MIN_ISLAND = 600     # robot specks smaller than this (at 1/4 scale) get dropped
 EDGE_DILATE = 2      # px to push the matte back out over the true edge
 FEATHER = 1.4        # matte blur radius
+
+# --- ground-shadow erase (hand-traced bottom silhouette, source coords) -----
+# The studio's contact shadow under the cube measures 0.16-0.98 x the backdrop
+# model - the same range as the feet (0.27-0.38) and the shaded underside - so
+# no colour rule can separate shadow from robot. Trace the robot's true bottom
+# edge once (cube rim between the feet, feet outline where they hang below) and
+# zero the alpha below the line: everything the studio put on the floor is gone.
+# Traced against avatar-source.png (1254x1254), verified with an overlay -
+# everything red stayed shadow, every foot stayed inside the cut.
+BOTTOM_TRACE = [
+    (0, 848), (238, 852), (258, 862), (268, 876), (272, 906), (280, 934),
+    (300, 944), (360, 946), (374, 928), (384, 896), (394, 884), (414, 896),
+    (420, 926), (426, 970), (436, 1004), (452, 1016), (552, 1018), (570, 1008),
+    (582, 978), (590, 944), (598, 918), (620, 906), (700, 898), (754, 888),
+    (764, 880), (772, 922), (780, 952), (792, 966), (900, 970), (918, 958),
+    (930, 928), (940, 894), (952, 868), (964, 856), (1253, 852),
+]
 
 
 def log(msg: str) -> None:
@@ -185,8 +210,9 @@ def background_mask(rgb: np.ndarray) -> np.ndarray:
 
       * the robot is off-model by 40-200 levels everywhere - feet, shell,
         face screen;
-      * the drop shadow stays (diff ~70), so the sprite keeps its soft ground
-        shadow and the pet looks grounded instead of floating;
+      * the drop shadow stays through the flood too (diff ~70) - colour can
+        never separate it from the feet, so it is erased afterwards by the
+        BOTTOM_TRACE cut (see cutout), never by the model;
       * that shadow then forms an un-crossable wall around the robot's base,
         shielding the cube's underside - its ambient-occlusion band is also
         120+ levels off-model and can simply never be reached by the flood
@@ -271,7 +297,15 @@ def cutout(img: Image.Image) -> Image.Image:
     a_img = a_img.filter(ImageFilter.GaussianBlur(FEATHER))
     out = img.convert("RGBA")
     out.putalpha(a_img)
-    return out
+
+    # drop the studio ground shadow: zero alpha below the traced bottom
+    # silhouette, after the feather so the cut edge stays crisp instead of
+    # letting a blurred shadow fringe creep back in along the line.
+    below = Image.new("L", out.size, 0)
+    ImageDraw.Draw(below).polygon(BOTTOM_TRACE + [(out.width - 1, out.height - 1), (0, out.height - 1)], fill=255)
+    arr = np.asarray(out).copy()
+    arr[np.asarray(below) > 0, 3] = 0
+    return Image.fromarray(arr, "RGBA")
 
 
 # ---------------------------------------------------------------- face edits
@@ -362,22 +396,22 @@ def draw_calibration(img: Image.Image) -> Image.Image:
 
 # ------------------------------------------------------------------- frames
 
-def clip_frame(base: Image.Image, dy: float, rot: float, scale: float) -> Image.Image:
+def clip_frame(base: Image.Image, dy: float, rot: float, scale: float, frame_w: int = FRAME) -> Image.Image:
     """One sprite cell: optional scale/rotate, feet pinned at FEET_Y."""
-    cell = Image.new("RGBA", (FRAME, FRAME), (0, 0, 0, 0))
+    cell = Image.new("RGBA", (frame_w, FRAME), (0, 0, 0, 0))
     sprite = base
     if scale != 1.0:
         size = (max(1, round(sprite.width * scale)), max(1, round(sprite.height * scale)))
         sprite = sprite.resize(size, Image.LANCZOS)
     if rot:
         sprite = sprite.rotate(rot, resample=Image.BICUBIC, expand=False)
-    x = round((FRAME - sprite.width) / 2)
+    x = round((frame_w - sprite.width) / 2)
     y = round(FEET_Y - sprite.height + dy)
     cell.alpha_composite(sprite, (x, max(0, y)))
     return cell
 
 
-def build_sheet(variants: dict[str, Image.Image]) -> tuple[Image.Image, dict]:
+def build_sheet(variants: dict[str, Image.Image], frame_w: int) -> tuple[Image.Image, dict]:
     clips = {
         "idle": {"row": 0, "frames": 6, "fps": 6, "loop": True},
         "walk": {"row": 1, "frames": 8, "fps": 10, "loop": True},
@@ -423,28 +457,29 @@ def build_sheet(variants: dict[str, Image.Image]) -> tuple[Image.Image, dict]:
             dict(v="wide", dy=-3, rot=-2.0, scale=1.04),
             dict(v="wide", dy=-1, rot=0.0, scale=1.03),
         ],
-        # two little hops with happy eyes
+        # two little hops with happy eyes (dy capped so the sprite top never
+        # clips: FEET_Y - height*1.04 - 15 would start above row 0)
         "happy": [
             dict(v="happy", dy=-1, rot=0.0, scale=1.02),
-            dict(v="happy", dy=-9, rot=3.0, scale=1.03),
-            dict(v="happy", dy=-15, rot=0.0, scale=1.04),
-            dict(v="happy", dy=-8, rot=-3.0, scale=1.03),
+            dict(v="happy", dy=-7, rot=3.0, scale=1.03),
+            dict(v="happy", dy=-9, rot=0.0, scale=1.04),
+            dict(v="happy", dy=-6, rot=-3.0, scale=1.03),
             dict(v="happy", dy=-2, rot=0.0, scale=1.02),
-            dict(v="happy", dy=-9, rot=-3.0, scale=1.03),
-            dict(v="happy", dy=-15, rot=0.0, scale=1.04),
-            dict(v="happy", dy=-8, rot=3.0, scale=1.03),
+            dict(v="happy", dy=-7, rot=-3.0, scale=1.03),
+            dict(v="happy", dy=-9, rot=0.0, scale=1.04),
+            dict(v="happy", dy=-6, rot=3.0, scale=1.03),
         ],
     }
 
     rows = len(clips)
-    sheet = Image.new("RGBA", (COLS * FRAME, rows * FRAME), (0, 0, 0, 0))
+    sheet = Image.new("RGBA", (COLS * frame_w, rows * FRAME), (0, 0, 0, 0))
     for clip_name, clip in clips.items():
         for col, plan in enumerate(plans[clip_name]):
-            cell = clip_frame(variants[plan["v"]], plan["dy"], plan["rot"], plan["scale"])
-            sheet.alpha_composite(cell, (col * FRAME, clip["row"] * FRAME))
+            cell = clip_frame(variants[plan["v"]], plan["dy"], plan["rot"], plan["scale"], frame_w)
+            sheet.alpha_composite(cell, (col * frame_w, clip["row"] * FRAME))
 
     meta = {
-        "frameWidth": FRAME,
+        "frameWidth": frame_w,
         "frameHeight": FRAME,
         "image": "robot.png",
         "renderScale": 1.0,
@@ -499,10 +534,11 @@ def main() -> None:
     alpha = np.asarray(cut)[:, :, 3]
     ys, xs = np.where(alpha > 8)
     box = (int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1)
-    log(f"robot bbox: {box} ({box[2] - box[0]}x{box[3] - box[1]})")
 
     scale = ROBOT_H / (box[3] - box[1])
     size = (max(1, round((box[2] - box[0]) * scale)), ROBOT_H)
+    frame_w = max(FRAME, size[0] + 2 * PAD)
+    log(f"robot bbox: {box} ({box[2] - box[0]}x{box[3] - box[1]}), sprite {size[0]}x{size[1]}, cell {frame_w}x{FRAME}")
     small = {name: v.crop(box).resize(size, Image.LANCZOS) for name, v in variants.items()}
 
     if debug:
@@ -511,13 +547,13 @@ def main() -> None:
             board.alpha_composite(v, (16 + i * (size[0] + 16), 16))
             ImageDraw.Draw(board).text((16 + i * (size[0] + 16), 2), name, fill=(255, 255, 0, 255))
         board.save(DEBUG_DIR / "02-variants.png")
-        big = checkerboard((FRAME * 5 + 64, FRAME + 32))
+        big = checkerboard((frame_w * 5 + 64, FRAME + 32))
         for i, name in enumerate(["open", "blink", "happy", "wide", "closed"]):
-            big.alpha_composite(clip_frame(small[name], 0, 0, 1.0), (16 + i * (FRAME + 8), 16))
+            big.alpha_composite(clip_frame(small[name], 0, 0, 1.0, frame_w), (16 + i * (frame_w + 8), 16))
         big.save(DEBUG_DIR / "03-frames.png")
 
     log("building sheet...")
-    sheet, meta = build_sheet(small)
+    sheet, meta = build_sheet(small, frame_w)
     sheet.save(OUT_PNG)
     OUT_JSON.write_text(json.dumps(meta, indent=2) + "\n")
     log(f"wrote {OUT_PNG} ({sheet.width}x{sheet.height}) and {OUT_JSON}")

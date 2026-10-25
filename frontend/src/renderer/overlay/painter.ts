@@ -117,7 +117,10 @@ export class Painter {
     this.canvas.style.width = `${width}px`
     this.canvas.style.height = `${height}px`
     this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0)
-    this.ctx.imageSmoothingEnabled = false
+    // Smooth resampling for the sprite sheet (drawPet re-asserts this per
+    // draw); vector shapes are unaffected by it.
+    this.ctx.imageSmoothingEnabled = true
+    this.ctx.imageSmoothingQuality = 'high'
     this.prev = null
   }
 }

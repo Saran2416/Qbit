@@ -110,6 +110,8 @@ export interface ScreenTimeStatsData {
   totalSeconds: number
   apps: Array<{ app: string; category?: AppCategory; seconds: number }>
   limitMinutes?: number
+  /** Reminders that are still waiting to fire (backend-tracked ones). */
+  activeReminders?: ReminderData[]
 }
 
 export interface HelloData {
@@ -169,6 +171,8 @@ export interface OutboundMessageMap {
   /** Sent when the user dismisses a bubble. */
   dismiss: { id?: string; kind?: string; all?: boolean }
   reminder_add: { text: string; dueAt?: number }
+  /** Ask the backend to re-send today's stats (incl. pending reminders). */
+  get_stats: Record<string, never>
   set_limit: { limitMinutes: number }
   set_muted: { muted: boolean }
   game_event: { game: GameId; event: 'start' | 'end'; score?: number; detail?: string }
@@ -223,6 +227,10 @@ export interface AppSettings {
   maxBubbles: number
   sleepAfterMs: number
   deepSleepAfterMs: number
+  /** Minutes of roaming between rest breaks (0 disables the cycle). */
+  restEveryMinutes: number
+  /** How long a rest break lasts. */
+  restForSeconds: number
   /** Spawn `tools/mock-backend.mjs` automatically in development. */
   backendAutoStartMock: boolean
   showDebug: boolean

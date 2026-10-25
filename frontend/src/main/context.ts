@@ -40,6 +40,10 @@ export interface AppContext {
   reportGame(data: GameEventData): void
   addReminder(text: string, dueAt?: number): void
   setLimit(minutes: number): void
-  dismiss(id?: string, kind?: string): void
+  /**
+   * `text`/`dueAt` let us also cancel the local twin of a backend reminder
+   * (panel adds create one in each place).
+   */
+  dismiss(id?: string, kind?: string, text?: string, dueAt?: number): void
   quit(): void
 }

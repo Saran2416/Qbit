@@ -196,11 +196,16 @@ function bootstrap(): void {
   })
 
   const overlay = new OverlayWindow(getLayout)
+  // The pet's invisible catcher windows float above normal windows, so while
+  // the panel or a game owns input they must stand down.
+  const syncCatchers = (): void => overlay.setCatchersPaused(panel.isOpen() || game.isOpen())
   const panel = new PanelWindow(getLayout, (open) => {
+    syncCatchers()
     overlay.send(IPC.evPanelState, open)
     if (!open) overlay.send(IPC.evPetCommand, { kind: 'wake', reason: 'panel-closed' } satisfies PetCommand)
   })
   const game = new GameWindow(getLayout, () => {
+    syncCatchers()
     overlay.send(IPC.evPetCommand, { kind: 'wake', reason: 'game-closed' } satisfies PetCommand)
   })
 
@@ -283,6 +288,7 @@ function bootstrap(): void {
     },
     openGame: (gameId: GameId | 'menu'): void => {
       game.open(gameId)
+      syncCatchers()
     },
     reportGame: (data: GameEventData): void => {
       backend.send({ type: 'game_event', data })
@@ -296,8 +302,14 @@ function bootstrap(): void {
       const clamped = Math.min(1440, Math.max(5, Math.round(minutes)))
       return ctx!.applySettings({ screenTimeLimitMinutes: clamped })
     },
-    dismiss: (id?: string, kind?: string): void => {
+    dismiss: (id?: string, kind?: string, text?: string, dueAt?: number): void => {
       backend.send({ type: 'dismiss', data: { id, kind } })
+      // A pending local reminder with a backend id twin: cancel it too, or it
+      // fires anyway when its own timer comes due.
+      if (kind === 'reminder') {
+        if (typeof text === 'string' && text) reminders.cancelMatching(text, dueAt)
+        else if (typeof id === 'string' && id.startsWith('local-')) reminders.cancel(id)
+      }
     },
     quit: (): void => {
       stats.persistIfDirty()

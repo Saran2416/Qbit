@@ -259,7 +259,11 @@ export function drawPet(ctx: CanvasRenderingContext2D, atlas: Atlas, spec: DrawP
     const frame = Math.max(0, Math.floor(spec.frame))
     const sx = frame * frameW
     const sy = clipFor(atlas, spec.clip).row * frameH
-    ctx.imageSmoothingEnabled = false
+    // High-quality resampling: petScale is a free slider value (e.g. 0.55), so
+    // the sheet is almost always scaled non-integer - nearest-neighbour would
+    // leave the robot jagged and shimmering during animation.
+    ctx.imageSmoothingEnabled = true
+    ctx.imageSmoothingQuality = 'high'
     ctx.drawImage(atlas.image, sx, sy, frameW, frameH, 0, 0, width, height)
   } else {
     drawProcedural(ctx, poseFor(spec.clip, spec.frame, clipFor(atlas, spec.clip).frames, spec.look), scale, spec)

@@ -20,6 +20,7 @@
           </div>
           <div class="sub" id="status-line">—</div>
         </div>
+        <span class="clock" id="clock">--:--:--</span>
         <button id="close-btn" class="icon-btn" title="Close (Esc)">×</button>
       </header>
 
@@ -62,11 +63,17 @@
           <button id="reminder-add" class="btn primary">Add</button>
           <button id="reminder-now" class="btn tiny">now</button>
         </div>
+        <ul class="reminder-list" id="reminder-list"></ul>
       </section>
 
       <section class="block toggles">
         <label class="toggle"><input type="checkbox" id="toggle-mute" /> <span>Mute notifications</span></label>
         <label class="toggle"><input type="checkbox" id="toggle-roam" /> <span>Pause roaming</span></label>
+        <div class="size-row">
+          <span>Pet size</span>
+          <input id="pet-size" type="range" min="0.5" max="1.6" step="0.05" />
+          <span class="hint" id="pet-size-label">85%</span>
+        </div>
       </section>
 
       <section class="block">

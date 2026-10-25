@@ -8,6 +8,7 @@ import { Animator } from './animator'
 import { Brain } from './brain'
 import { BubbleHost } from './bubbles'
 import { TokenChip } from './chip'
+import { ContextMenu, type MenuItem } from './menu'
 import { Motion } from './motion'
 import { Painter, type PetVisual } from './painter'
 import { RegionHub } from './regions'
@@ -35,9 +36,10 @@ async function boot(): Promise<void> {
   const canvas = qs<HTMLCanvasElement>('#stage')
   const layer = qs<HTMLElement>('#layer')
   /**
-   * The whole desktop expressed in overlay-local CSS px. Bubbles and the chip
-   * clamp to this - not to the viewport window - so they can extend past the
-   * current window, whose union report then tells main to grow it around them.
+   * The whole desktop expressed in overlay-local CSS px — the same union
+   * windows.ts sizes the overlay window to (and re-asserts after the WM's
+   * map-time clamp, see OverlayWindow.create), so the canvas covers it 1:1.
+   * Bubbles and the chip clamp to this so they never wander off any display.
    */
   const bounds = (): Rect => {
     let x0 = Infinity
@@ -69,6 +71,7 @@ async function boot(): Promise<void> {
   })
 
   const chip = new TokenChip({ layer, bounds: bounds(), ttlMs: 8000 })
+  const menu = new ContextMenu(layer)
 
   const brain = new Brain({
     bubbles,
@@ -136,10 +139,13 @@ async function boot(): Promise<void> {
     chip.update()
 
     const interactive: Rect[] = [petRect, ...bubbles.layout(petRect, bounds()), ...chip.layout(petRect, bounds())]
+    // The menu stacks above everything else, so its region goes last.
+    const menuRect = menu.rect
+    if (menuRect) interactive.push(menuRect)
     regions.set(interactive)
     regions.flush()
 
-    if (!brain.needsFrames()) {
+    if (!brain.needsFrames() && !menu.isOpen) {
       // Deep sleep: nothing on screen is changing, stop rAF entirely.
       regions.flush(true)
       ticker.stop()
@@ -247,6 +253,7 @@ async function boot(): Promise<void> {
   bridge.onPanelState((open) => {
     panelOpen = open
     brain.setPanelOpen(open)
+    if (open) menu.hide()
     wakeLoop()
   })
 
@@ -261,26 +268,41 @@ async function boot(): Promise<void> {
   // own pointer events, so anything reaching this handler was aimed at the pet.
   window.addEventListener('pointerdown', (event) => {
     const target = event.target as HTMLElement | null
-    if (target && target.closest('.bubble, .token-chip')) return
+    if (target && target.closest('.bubble, .token-chip, .ctx-menu')) return
     const local = { x: event.clientX, y: event.clientY }
     const petRect = painter.lastPetRect()
+
+    if (event.button === 2) {
+      // Right-click on the pet: quick menu (settings, reminders, toggles).
+      if (!containsPoint(petRect, local, 8)) return
+      openMenuAt(local)
+      return
+    }
+    if (event.button !== 0) return
+
+    // A left click while the menu is open just closes it (and is eaten).
+    if (menu.isOpen) {
+      menu.hide()
+      wakeLoop()
+      return
+    }
     if (!containsPoint(petRect, local, 6)) return
 
     brain.onPetClicked()
     wakeLoop()
-    const anchor: Rect = {
-      x: Math.round(petRect.x + layout.origin.x),
-      y: Math.round(petRect.y + layout.origin.y),
-      width: Math.round(petRect.width),
-      height: Math.round(petRect.height)
-    }
-    void bridge.openPanel(anchor)
+    openPanelAtPet()
   })
 
   window.addEventListener('contextmenu', (event) => {
     const target = event.target as HTMLElement | null
     if (!target || target.closest('.bubble, .token-chip')) return
     event.preventDefault()
+    // Fallback for platforms that deliver `contextmenu` without a right
+    // pointerdown reaching us first (pointerdown normally opens it already).
+    if (menu.isOpen) return
+    const local = { x: event.clientX, y: event.clientY }
+    if (!containsPoint(painter.lastPetRect(), local, 8)) return
+    openMenuAt(local)
   })
 
   // Safety net: if the overlay ever loses its regions (reload, crash of a child
@@ -295,8 +317,60 @@ async function boot(): Promise<void> {
       speed: currentSettings.roamSpeed,
       avoidRadius: currentSettings.cursorAvoidRadius,
       petWidth: size.width,
-      petHeight: size.height
+      petHeight: size.height,
+      restEveryMs: currentSettings.restEveryMinutes * 60_000,
+      restMs: currentSettings.restForSeconds * 1000
     }
+  }
+
+  function openPanelAtPet(): void {
+    const petRect = painter.lastPetRect()
+    const anchor: Rect = {
+      x: Math.round(petRect.x + layout.origin.x),
+      y: Math.round(petRect.y + layout.origin.y),
+      width: Math.round(petRect.width),
+      height: Math.round(petRect.height)
+    }
+    void bridge.openPanel(anchor)
+  }
+
+  function openMenuAt(at: Point): void {
+    menu.show(at, menuItems(), bounds())
+    brain.wake('menu')
+    wakeLoop()
+  }
+
+  function menuItems(): MenuItem[] {
+    return [
+      { label: 'Settings & reminders…', hint: 'panel', onSelect: openPanelAtPet },
+      { separator: true },
+      {
+        label: 'Pause roaming',
+        checked: settings.roamPaused,
+        onSelect: () => void bridge.updateSettings({ roamPaused: !settings.roamPaused })
+      },
+      {
+        label: 'Mute notifications',
+        checked: settings.muted,
+        onSelect: () => void bridge.updateSettings({ muted: !settings.muted })
+      },
+      { separator: true },
+      {
+        label: 'Play a game…',
+        onSelect: () => {
+          gameOpen = true
+          brain.setGameOpen(true)
+          void bridge.openGame('menu')
+        }
+      },
+      { label: 'Reload sprites', onSelect: () => void reloadAtlas() },
+      {
+        label: settings.showDebug ? 'Hide debug info' : 'Show debug info',
+        onSelect: () => void bridge.updateSettings({ showDebug: !settings.showDebug })
+      },
+      { separator: true },
+      { label: 'Quit Qbit', danger: true, onSelect: () => bridge.quit() }
+    ]
   }
 
   function ensurePetVisible(): void {
@@ -331,7 +405,7 @@ async function boot(): Promise<void> {
     const expired = bubbles.tick() || chip.update()
     if (expired) wakeLoop()
     regions.flush()
-    if (!ticker.isRunning && (brain.needsFrames() || bubbles.active || chip.active)) wakeLoop()
+    if (!ticker.isRunning && (brain.needsFrames() || bubbles.active || chip.active || menu.isOpen)) wakeLoop()
   })
 
   // Persist the pet's position roughly every 30 s so a restart does not always

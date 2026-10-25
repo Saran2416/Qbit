@@ -30,6 +30,10 @@ interface BubbleRecord extends Required<Pick<BubbleOptions, 'id' | 'kind' | 'tex
   title?: string
   actions: BubbleAction[]
   onDismissRequested: () => void
+  /** pointer is over this bubble (position frozen while true) */
+  hovered: boolean
+  /** positioned by layout() at least once (safe to freeze) */
+  positioned: boolean
 }
 
 export interface BubbleHostOptions {
@@ -50,8 +54,20 @@ export interface BubbleHostOptions {
 export class BubbleHost {
   private items: BubbleRecord[] = []
   private seq = 0
+  /** a pointer button is down over a bubble (position frozen until release) */
+  private pressed = false
 
-  constructor(private readonly opts: BubbleHostOptions) {}
+  constructor(private readonly opts: BubbleHostOptions) {
+    // Buttons live on a bubble that follows a walking pet: if the bubble kept
+    // moving between mouseDown and mouseUp, the DOM click would never land on
+    // the button (the "Done" button used to be unclickable while roaming).
+    // Freezing the bubble under the pointer keeps the target under the cursor.
+    const release = () => {
+      this.pressed = false
+    }
+    window.addEventListener('pointerup', release)
+    window.addEventListener('pointercancel', release)
+  }
 
   get count(): number {
     return this.items.length
@@ -98,7 +114,9 @@ export class BubbleHost {
       element,
       expiresAt: options.durationMs === 0 ? Number.POSITIVE_INFINITY : performance.now() + (options.durationMs ?? this.opts.defaultDurationMs),
       actions: options.actions ?? [],
-      onDismissRequested: () => this.remove(id, true)
+      onDismissRequested: () => this.remove(id, true),
+      hovered: false,
+      positioned: false
     }
 
     if (record.actions.length > 0) {
@@ -134,8 +152,18 @@ export class BubbleHost {
       )
     }
 
-    // Swallow clicks so they never reach the "clicked the robot" handler.
-    element.addEventListener('pointerdown', (event) => event.stopPropagation())
+    // Swallow clicks so they never reach the "clicked the robot" handler, and
+    // hold the bubble still while the pointer is on it (see layout()).
+    element.addEventListener('pointerenter', () => {
+      record.hovered = true
+    })
+    element.addEventListener('pointerleave', () => {
+      record.hovered = false
+    })
+    element.addEventListener('pointerdown', (event) => {
+      event.stopPropagation()
+      this.pressed = true
+    })
 
     this.items.push(record)
     this.opts.layer.append(element)
@@ -205,10 +233,18 @@ export class BubbleHost {
 
   /** Anchors every bubble to the pet and returns their rectangles. */
   layout(petRect: Rect, bounds = this.opts.bounds): Rect[] {
+    // While the pointer is on a bubble (or a press is in flight) the bubbles
+    // hold their position, so buttons stay clickable under a walking pet.
+    const held = this.pressed || this.items.some((item) => item.hovered)
     const rects: Rect[] = []
     for (const item of this.items) {
+      if (held && item.positioned) {
+        rects.push(rectOf(item.element))
+        continue
+      }
       const preference = item.tone === 'offer' ? 'above' : 'auto'
       rects.push(positionAnchored(item.element, petRect, bounds, preference))
+      item.positioned = true
     }
     return rects
   }
